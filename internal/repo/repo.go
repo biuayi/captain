@@ -234,6 +234,7 @@ type ParticipantRow struct {
 	IdentityType  string
 	IdentityValue string
 	Profile       map[string]any
+	Form          map[string]any // 最近一次 form step 采集的登记信息（动态字段）
 	CheckinAt     *time.Time
 	Status        string
 	LastStep      string
@@ -241,11 +242,19 @@ type ParticipantRow struct {
 }
 
 func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]ParticipantRow, error) {
+	// 登记信息存在 participation_step_record(step_type='form')，取最近一条；
+	// 这样活动方修改采集字段后，列表/导出自动反映实际采集内容。
 	rows, err := r.pg.Query(ctx,
 		`SELECT p.id, p.identity_type, COALESCE(p.identity_value,''), p.profile,
-		        pt.checkin_at, pt.status, COALESCE(pt.last_step_id,''), p.first_seen_at
+		        pt.checkin_at, pt.status, COALESCE(pt.last_step_id,''), p.first_seen_at,
+		        COALESCE(f.payload,'{}'::jsonb)
 		 FROM participant p
 		 JOIN participation pt ON pt.participant_id = p.id
+		 LEFT JOIN LATERAL (
+		   SELECT payload FROM participation_step_record sr
+		   WHERE sr.participation_id = pt.id AND sr.step_type='form'
+		   ORDER BY sr.occurred_at DESC LIMIT 1
+		 ) f ON true
 		 WHERE p.event_id=$1
 		 ORDER BY p.first_seen_at ASC`, eventID)
 	if err != nil {
@@ -255,12 +264,13 @@ func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]Particip
 	var out []ParticipantRow
 	for rows.Next() {
 		var pr ParticipantRow
-		var prof []byte
+		var prof, form []byte
 		if err := rows.Scan(&pr.ParticipantID, &pr.IdentityType, &pr.IdentityValue,
-			&prof, &pr.CheckinAt, &pr.Status, &pr.LastStep, &pr.FirstSeenAt); err != nil {
+			&prof, &pr.CheckinAt, &pr.Status, &pr.LastStep, &pr.FirstSeenAt, &form); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(prof, &pr.Profile)
+		_ = json.Unmarshal(form, &pr.Form)
 		out = append(out, pr)
 	}
 	return out, rows.Err()

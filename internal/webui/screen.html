@@ -240,10 +240,20 @@ body{
       retry = setTimeout(connect, 2000);
     };
   }
+  // 轮询兜底：经 Cloudflare 隧道/代理时 SSE 可能被缓冲，确保大屏始终跳动。
+  let pollT = 0;
+  function poll(){
+    if (dead || !eventId) return;
+    fetch("/api/v1/p/e/" + encodeURIComponent(eventId) + "/count", { cache:"no-store" })
+      .then((r) => r.json())
+      .then((d) => applyCount(Number(d && d.count) || 0))
+      .catch(() => {});
+  }
   function shutdown(){
     dead = true;
     if (raf) cancelAnimationFrame(raf);
     clearTimeout(retry);
+    clearInterval(pollT);
     if (es) es.close();
   }
   window.addEventListener("beforeunload", shutdown, { once:true });
@@ -252,7 +262,11 @@ body{
     els.name.textContent = "寻道大千周年庆";
     els.expected.textContent = "0";
     paintProgress();
-  }).finally(connect);
+  }).finally(() => {
+    connect();
+    poll();                       // 立即拉一次，开屏即显当前值
+    pollT = setInterval(poll, 3000);
+  });
 })();
 </script>
 </body>

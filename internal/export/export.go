@@ -8,7 +8,9 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/hertz/captain/internal/repo"
@@ -82,22 +84,41 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 		return nil // failure recorded; don't redeliver forever
 	}
 
+	// 动态列：登记信息字段随活动方采集内容自动出现（取所有行 form 键并集）。
+	keySet := map[string]struct{}{}
+	for _, r := range rows {
+		for k := range r.Form {
+			keySet[k] = struct{}{}
+		}
+	}
+	formKeys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		formKeys = append(formKeys, k)
+	}
+	sort.Strings(formKeys)
+
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM so Excel reads Chinese correctly
 	cw := csv.NewWriter(&buf)
-	_ = cw.Write([]string{"participant_id", "identity_type", "identity_value",
-		"status", "last_step", "checkin_at", "first_seen_at", "profile"})
+	header := []string{"participant_id", "identity_type", "identity_value",
+		"status", "last_step", "checkin_at", "first_seen_at"}
+	for _, k := range formKeys {
+		header = append(header, "登记_"+k)
+	}
+	_ = cw.Write(header)
 	for _, r := range rows {
 		checkin := ""
 		if r.CheckinAt != nil {
 			checkin = r.CheckinAt.Format(time.RFC3339)
 		}
-		prof, _ := json.Marshal(r.Profile)
-		_ = cw.Write([]string{
+		rec := []string{
 			r.ParticipantID, r.IdentityType, r.IdentityValue,
-			r.Status, r.LastStep, checkin,
-			r.FirstSeenAt.Format(time.RFC3339), string(prof),
-		})
+			r.Status, r.LastStep, checkin, r.FirstSeenAt.Format(time.RFC3339),
+		}
+		for _, k := range formKeys {
+			rec = append(rec, fmt.Sprintf("%v", r.Form[k]))
+		}
+		_ = cw.Write(rec)
 	}
 	cw.Flush()
 	if err := cw.Error(); err != nil {
