@@ -114,6 +114,7 @@ func run() error {
 	mux.HandleFunc("GET /m/{event_id}", webui.Mobile())
 	mux.HandleFunc("GET /screen/{event_id}", webui.Screen())
 	mux.HandleFunc("GET /admin", webui.Admin())
+	mux.HandleFunc("GET /assets/{name}", webui.Asset())
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
