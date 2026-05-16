@@ -16,7 +16,7 @@
 | 项 | 值 |
 |---|---|
 | 后端 captain | **M1/M2 核心 + REQ-CHANGE-001 完成并验证**（build/test/30k压测/身份矩阵全绿，已推 GitHub `c088026`） |
-| 前端 check-in-kiosk | **monorepo 三端已实现并构建验证**（shared+mobile+big-screen+admin，typecheck净/vite build全绿，已推 `16e6f67`）；**浏览器端到端联调未做**(T-031~034 REVIEW) |
+| 前端 check-in-kiosk | **React 三端已接为正式对外 UI 并公网验证**（mobile/admin 经隧道 200；big-screen=codex 定稿+扫码二维码，已去页眉）。剩浏览器细节回归 |
 | 正式 URL | **硬化已完成（可安全暴露）**；仅差 cloudflared 二进制：用户装/放行后我一条命令出公网 URL。见 §B-URL |
 | 安全硬化 | ✅ 强密钥/强口令/管理URL混淆(T-083) 完成验证（→HISTORY） |
 | 大屏 | ✅ 改版：广东省游心公益基金会 + 爱心跳动/亮度进度（logo 待活动方提供 /assets/youxin-logo.png） |
@@ -58,6 +58,7 @@
 **B-URL（OPEN，仅差 cloudflared 二进制）**：硬化已完成，可安全暴露。安全层一致拦截 AI 自行下载/运行 cloudflared 与自改 settings。用户二选一：① `apt/brew install cloudflared`（或下 github.com/cloudflare/cloudflared release 到 /usr/local/bin）② settings.allow 加 `Bash(cloudflared:*)`。之后 AI 一条 `cloudflared tunnel --url http://localhost:8080` 出公网 https。
 **B-LOGO（OPEN，需用户提供）**：广东省游心公益基金会 logo——放 `captain/internal/webui/assets/youxin-logo.png`（或给 URL），现优雅降级为文字署名。
 
+- `2026-05-17 | Claude@check-in-kiosk-session | 大批次 | React三端=正式UI(隧道验证)；codex隔离重设计大屏(去大爱心)+扫码二维码+去页眉；登录3s/10次锁定;Turnstile服务端+前端挂件(默认off);mobile游心logo。captain 1566e55/kiosk 183f766。**B-TS**:Turnstile 待用户给 sitekey/secret 才激活`
 - `2026-05-17 | Claude@check-in-kiosk-session | 硬化+大屏 | T-083强口令/密钥/管理URL混淆完成验证(→HISTORY)；大屏改版游心公益基金会+爱心跳动/亮度进度+/info；captain 10fd961 / kiosk c16ddca。待用户：cloudflared 二进制(B-URL)、游心logo(B-LOGO)`
 - `2026-05-16 | Claude@check-in-kiosk-session | 前端 | monorepo 三端+shared 实现并构建验证(typecheck净/vite build全绿)，push 16e6f67；T-011/030→HISTORY，T-031~034 REVIEW(待浏览器e2e)；隧道仍待用户放行+先硬化`
 - `2026-05-16 | Claude@check-in-kiosk-session | 流程重构 | 引入 HISTORY.md，PROGRESS 瘦身为仅活跃；REQ-CHANGE-002 记档(位置/凭据非明文/字段+URL混淆)；M1~M4 据实校准（前端未开工，后端+REQ-CHANGE-001 完成）`

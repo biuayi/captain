@@ -37,3 +37,13 @@
 
 - **T-083 / 凭据硬化（REQ-CHANGE-002）**：强随机 `CAPTAIN_TOKEN_SECRET`/`IDENTITY_PEPPER` + 强种子口令（`deploy/.env` gitignored，`make` 自动 openssl 生成）；管理后台路径混淆 `CAPTAIN_ADMIN_PATH`——`/admin` 与 `/api/v1/admin` 不再注册→404，控制台/admin API 走 env slug，webui 注入混淆基址。容器验证：`/admin`→404、`/api/v1/admin/login`→404、`/mgmt-xxxx`→200、无默认密钥告警。**公网暴露前置硬化完成**。
 - **大屏改版（活动方反馈）**：弃红十字/数值爱心值 → 广东省游心公益基金会 + 一颗爱心；每签到（SSE 计数增长）爱心跳动一下；亮度=进度=`count/(预计×90%)`，90% 预计人数最亮；新增公开 `GET /api/v1/p/e/{id}/info`。embedded screen.html + React big-screen 同步。logo 待活动方提供。
+
+## React 正式 UI + 大屏定稿 + 登录硬化 + Turnstile（DONE，captain `a8231f9` / kiosk `183f766`）
+
+- **React 三端接为正式对外 UI**：captain 内嵌 check-in-kiosk 构建产物，路由 `/m/{id}`=mobile、`/{adminslug}`=admin（注入 `__ADMIN_SEG__` 适配路径混淆）、`/m-static /a-static /s-static` 静态；vite per-app base 隔离；公网隧道验证 200。临时内嵌 mobile/admin 页已退役。
+- **大屏定稿（codex 隔离重设计）**：用户两次"丑"+"去大爱心"反馈 → codex 在**不读代码**的隔离 brief 下重设计：宣纸水墨、书法巨字 count、描金 SVG 进度环（取代大爱心）、墨点涟漪签到反馈、SSE 重连+beforeunload 清理。落为 `/screen`。
+- **大屏扫码签到二维码**：`GET /api/v1/p/e/{id}/qr`（skip2/go-qrcode，按请求域名+活动ID 生成公网入场链接 PNG），大屏右下角"扫码签到"卡片；活动方亦可用。
+- **mobile 游心 logo**：用户端同步加广东省游心公益基金会 logo+署名。
+- **登录硬化（REQ-CHANGE-004 T-090）**：organizer/admin 登录恒定 ~3s 延迟 + 同账号连续 10 次失败锁定 10 分钟（Redis，独立域）；容器验证 3.05s/第11次 423。
+- **Cloudflare Turnstile（T-091/092）**：服务端 siteverify 校验（organizer/admin 登录 + 参与 checkin）；前端挂件（shared 懒加载 + mobile签到 + admin登录），按 `/api/v1/p/config` 的 sitekey 渲染；`CAPTAIN_TURNSTILE_MODE` 默认 `off`（惰性、无回归，已验证），`enforce` + 真密钥即生效。**激活待用户提供 Turnstile sitekey/secret**（见 PROGRESS B-TS）。
+- 凭据页泄漏行已移除（公网安全）。REQ 文档我方改 `004` 避让协作 Agent 的 `003`。
