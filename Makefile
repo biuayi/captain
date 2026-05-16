@@ -2,8 +2,11 @@ COMPOSE := docker compose -f deploy/docker-compose.yml
 
 .PHONY: up down logs build test tidy vet smoke
 
-up:        ## 本地一键拉起全栈（postgres/redis/nats/captain）
-	$(COMPOSE) up --build -d
+bin/captain: $(shell find . -name '*.go' -not -path './bin/*')
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/captain ./cmd/server
+
+up: bin/captain ## 本地一键拉起全栈（postgres/redis/nats/captain）
+	DOCKER_BUILDKIT=0 $(COMPOSE) up --build -d
 	@echo "captain -> http://localhost:8080  (healthz: /healthz)"
 	@echo "查看 demo 入场链接: make logs | grep seed"
 

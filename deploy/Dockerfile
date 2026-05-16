@@ -1,14 +1,10 @@
-# build
-FROM golang:1.23-alpine AS build
-WORKDIR /src
-COPY go.mod go.sum* ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -o /out/captain ./cmd/server
-
-# run
+# Runtime-only, zero build-time network. The static binary is built on the
+# host (Makefile `up`) because in-container egress can't reach the host-local
+# proxy in this environment. No `apk add`: v1 talks only to PG/Redis/NATS over
+# plaintext on the internal network, so no extra packages are needed.
+# CI/prod can switch to a multi-stage build once the builder has registry+
+# module access.
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata curl
-COPY --from=build /out/captain /usr/local/bin/captain
+COPY bin/captain /usr/local/bin/captain
 EXPOSE 8080
 ENTRYPOINT ["captain"]
