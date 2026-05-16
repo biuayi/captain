@@ -92,18 +92,45 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL str
 		return err
 	}
 
-	log.Printf("seed: demo data created (admin/admin123, xundao/xundao123)")
+	// REQ-CHANGE-001: sample staff whitelist for the demo event so the
+	// staff-identity path testable out of the box; external stays open.
+	seedWhitelist(ctx, pool, eventID, orgID)
+
+	log.Printf("seed: demo data created (admin/admin123, xundao/xundao123); 白名单样例 E1001/E1002/E1003")
 	return logEvent(sig, baseURL, eventID, end)
 }
 
+// seedWhitelist idempotently ensures the demo staff whitelist exists
+// (REQ-CHANGE-001 §3.4). Safe to call on every boot.
+func seedWhitelist(ctx context.Context, pool *pgxpool.Pool, eventID, orgID string) {
+	staff := [][3]string{
+		{"E1001", "张三", "+8613800001234"},
+		{"E1002", "李四", "+8613900005678"},
+		{"E1003", "王五", "+8613700009012"},
+	}
+	for _, s := range staff {
+		last4 := s[2][len(s[2])-4:]
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO event_whitelist_entry
+			   (event_id, organizer_id, employee_number, name, phone_number, phone_last4, import_batch_id)
+			 VALUES ($1,$2,$3,$4,$5,$6,'seed')
+			 ON CONFLICT (event_id, employee_number) DO NOTHING`,
+			eventID, orgID, s[0], s[1], s[2], last4); err != nil {
+			log.Printf("seed: whitelist %s: %v", s[0], err)
+		}
+	}
+}
+
 func logExistingEvent(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL string) error {
-	var id string
+	var id, orgID string
 	var end time.Time
 	err := pool.QueryRow(ctx,
-		`SELECT id, end_at FROM event ORDER BY created_at ASC LIMIT 1`).Scan(&id, &end)
+		`SELECT id, organizer_id, end_at FROM event ORDER BY created_at ASC LIMIT 1`,
+	).Scan(&id, &orgID, &end)
 	if err != nil {
 		return nil // nothing to log
 	}
+	seedWhitelist(ctx, pool, id, orgID) // backfill whitelist for pre-existing demo
 	return logEvent(sig, baseURL, id, end)
 }
 

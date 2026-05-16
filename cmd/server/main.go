@@ -39,6 +39,9 @@ func run() error {
 	if cfg.TokenSecret == "dev-only-insecure-secret-change-me" {
 		log.Printf("WARNING: CAPTAIN_TOKEN_SECRET is the insecure default — set a strong secret before any non-dev use")
 	}
+	if cfg.IdentityPepper == "dev-only-insecure-pepper-change-me" {
+		log.Printf("WARNING: CAPTAIN_IDENTITY_PEPPER is the insecure default — set a strong pepper before any non-dev use")
+	}
 
 	rootCtx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
@@ -78,7 +81,7 @@ func run() error {
 	}()
 
 	pa := &participation.Handler{Repo: r, Sig: sig, RT: rt,
-		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS}
+		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
 		Store: strg, BaseURL: cfg.PublicBaseURL}
 	ad := &admin.Handler{Repo: r, Sig: sig}
@@ -100,6 +103,8 @@ func run() error {
 	mux.HandleFunc("GET /api/v1/org/events/{id}", og.Event)
 	mux.HandleFunc("GET /api/v1/org/events/{id}/participants", og.Participants)
 	mux.HandleFunc("GET /api/v1/org/events/{id}/entry", og.EntryLink)
+	mux.HandleFunc("POST /api/v1/org/events/{id}/whitelist/import", og.ImportWhitelist)
+	mux.HandleFunc("GET /api/v1/org/events/{id}/whitelist", og.ListWhitelist)
 	mux.HandleFunc("POST /api/v1/org/events/{id}/export", og.CreateExport)
 	mux.HandleFunc("GET /api/v1/org/exports/{job_id}", og.ExportStatus)
 	mux.HandleFunc("GET /api/v1/org/exports/{job_id}/download", og.ExportDownload)

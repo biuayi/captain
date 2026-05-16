@@ -9,10 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/hertz/captain/internal/flow"
 	"github.com/hertz/captain/internal/httpx"
+	"github.com/hertz/captain/internal/identity"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/token"
@@ -20,11 +22,12 @@ import (
 )
 
 type Handler struct {
-	Repo *repo.Repo
-	Sig  *token.Signer
-	RT   *realtime.Manager
-	RL   *httpx.RateLimiter
-	JS   jetstream.JetStream
+	Repo   *repo.Repo
+	Sig    *token.Signer
+	RT     *realtime.Manager
+	RL     *httpx.RateLimiter
+	JS     jetstream.JetStream
+	Pepper string // REQ-CHANGE-001 fingerprint/participant_key HMAC pepper
 }
 
 func deviceHash(uuid string) string {
@@ -107,6 +110,80 @@ type submitReq struct {
 	Fields map[string]any `json:"fields"` // form
 	Answer *int           `json:"answer"` // game
 	Pledge bool           `json:"pledge"` // charity
+
+	// REQ-CHANGE-001 (optional; absent => legacy device-session identity,
+	// keeps the existing demo / load path working — additive integration).
+	ParticipantType string            `json:"participant_type"` // staff | external
+	Fingerprint     *identity.Signals `json:"fingerprint"`
+	Name            string            `json:"name"`
+	EmployeeNumber  string            `json:"employee_number"`
+	PhoneLast4      string            `json:"phone_last4"`
+}
+
+// resolveIdentity implements the staff/external branches (codex algorithm).
+// Returns participantID, participationID, or an error code string.
+func (h *Handler) resolveIdentity(ctx context.Context, eventID string, b submitReq) (pid, partcpn, code string) {
+	payload, err := identity.Normalize(*b.Fingerprint)
+	if err != nil {
+		return "", "", identity.ErrBadFingerprint
+	}
+	fp := identity.Hash(h.Pepper, payload)
+
+	if b.ParticipantType == "staff" {
+		emp := strings.TrimSpace(b.EmployeeNumber)
+		e, err := h.Repo.WhitelistByEmployee(ctx, eventID, emp)
+		if err != nil || strings.TrimSpace(e.Name) != strings.TrimSpace(b.Name) {
+			return "", "", identity.ErrStaffNotInWhitelist
+		}
+		if e.Status == "blocked" {
+			return "", "", identity.ErrEntryBlocked
+		}
+		if e.Status == "claimed" && e.ClaimedFP != fp {
+			return "", "", identity.ErrEntryClaimedElsewhere
+		}
+		if e.Status == "unused" && strings.TrimSpace(b.PhoneLast4) != e.PhoneLast4 {
+			return "", "", identity.ErrPhoneMismatch
+		}
+		key := identity.ParticipantKey(h.Pepper, "staff", eventID, e.ID)
+		entryID := e.ID
+		pid, _, err = h.Repo.UpsertParticipantFull(ctx, repo.ParticipantUpsert{
+			EventID: eventID, ParticipantKey: key, IdentityType: "staff_whitelist",
+			ParticipantType: "staff", FingerprintHash: fp, WhitelistEntryID: &entryID,
+		})
+		if err != nil {
+			return "", "", "db"
+		}
+		if e.Status == "unused" {
+			won, err := h.Repo.ClaimWhitelist(ctx, e.ID, pid, fp)
+			if err != nil {
+				return "", "", "db"
+			}
+			if !won {
+				st, cpid, cfp, _ := h.Repo.WhitelistClaimState(ctx, e.ID)
+				if st == "blocked" {
+					return "", "", identity.ErrEntryBlocked
+				}
+				if !(cfp == fp && cpid == pid) {
+					return "", "", identity.ErrEntryClaimedElsewhere
+				}
+			}
+		}
+	} else { // external
+		key := identity.ParticipantKey(h.Pepper, "external", eventID, fp)
+		var err error
+		pid, _, err = h.Repo.UpsertParticipantFull(ctx, repo.ParticipantUpsert{
+			EventID: eventID, ParticipantKey: key, IdentityType: "external_fingerprint",
+			ParticipantType: "external", FingerprintHash: fp,
+		})
+		if err != nil {
+			return "", "", "db"
+		}
+	}
+	partcpn, err = h.Repo.EnsureParticipation(ctx, eventID, pid)
+	if err != nil {
+		return "", "", "db"
+	}
+	return pid, partcpn, ""
 }
 
 // Submit: POST /api/v1/p/e/{event_id}/steps/{step_id}/submit
@@ -147,22 +224,43 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	var body submitReq
 	_ = httpx.DecodeJSON(r, &body) // body optional for some steps
 
-	pkey := sess.DeviceHash
-	idType, idVal := "anon", ""
-	if step.Type == flow.StepForm {
-		if v, ok := body.Fields["phone"].(string); ok && v != "" {
-			idType, idVal = "phone", v
+	var partID, partcpnID string
+	if (body.ParticipantType == "staff" || body.ParticipantType == "external") && body.Fingerprint != nil {
+		// REQ-CHANGE-001 identity (fingerprint + whitelist)
+		var code string
+		partID, partcpnID, code = h.resolveIdentity(r.Context(), eventID, body)
+		switch code {
+		case "":
+		case "db":
+			httpx.Fail(w, http.StatusInternalServerError, "db", "identity resolve failed")
+			return
+		case identity.ErrBadFingerprint:
+			httpx.Fail(w, http.StatusBadRequest, code, "指纹信息不完整")
+			return
+		default: // STAFF_NOT_IN_WHITELIST / PHONE_MISMATCH / ENTRY_BLOCKED / ENTRY_CLAIMED_ELSEWHERE
+			httpx.Fail(w, http.StatusForbidden, code, "白名单校验未通过")
+			return
 		}
-	}
-	partID, _, err := h.Repo.UpsertParticipant(r.Context(), eventID, pkey, idType, idVal)
-	if err != nil {
-		httpx.Fail(w, http.StatusInternalServerError, "db", "participant upsert failed")
-		return
-	}
-	partcpnID, err := h.Repo.EnsureParticipation(r.Context(), eventID, partID)
-	if err != nil {
-		httpx.Fail(w, http.StatusInternalServerError, "db", "participation failed")
-		return
+	} else {
+		// legacy device-session identity (keeps existing demo / load path)
+		pkey := sess.DeviceHash
+		idType, idVal := "anon", ""
+		if step.Type == flow.StepForm {
+			if v, ok := body.Fields["phone"].(string); ok && v != "" {
+				idType, idVal = "phone", v
+			}
+		}
+		var err error
+		partID, _, err = h.Repo.UpsertParticipant(r.Context(), eventID, pkey, idType, idVal)
+		if err != nil {
+			httpx.Fail(w, http.StatusInternalServerError, "db", "participant upsert failed")
+			return
+		}
+		partcpnID, err = h.Repo.EnsureParticipation(r.Context(), eventID, partID)
+		if err != nil {
+			httpx.Fail(w, http.StatusInternalServerError, "db", "participation failed")
+			return
+		}
 	}
 
 	resp := map[string]any{"stepId": stepID, "nextStepId": step.NextStepID}

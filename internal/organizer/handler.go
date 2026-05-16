@@ -3,12 +3,16 @@
 package organizer
 
 import (
+	"encoding/csv"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/hertz/captain/internal/export"
 	"github.com/hertz/captain/internal/httpx"
+	"github.com/hertz/captain/internal/identity"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/storage"
@@ -137,6 +141,71 @@ func (h *Handler) EntryLink(w http.ResponseWriter, r *http.Request) {
 		"mobile_url":  h.BaseURL + "/m/" + ev.ID + "?et=" + et,
 		"screen_url":  h.BaseURL + "/screen/" + ev.ID,
 	})
+}
+
+// ImportWhitelist: POST /api/v1/org/events/{id}/whitelist/import
+// Body = CSV text with header: employee_number,name,phone (REQ-CHANGE-001).
+func (h *Handler) ImportWhitelist(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	ev, err := h.Repo.Event(r.Context(), r.PathValue("id"))
+	if err != nil || ev.OrganizerID != orgID {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "活动不存在")
+		return
+	}
+	defer r.Body.Close()
+	cr := csv.NewReader(io.LimitReader(r.Body, 4<<20))
+	cr.FieldsPerRecord = -1
+	recs, err := cr.ReadAll()
+	if err != nil || len(recs) < 2 {
+		httpx.Fail(w, http.StatusBadRequest, "bad_csv", "CSV 需含表头 employee_number,name,phone 且至少一行数据")
+		return
+	}
+	var rows []repo.WLImportRow
+	for _, rec := range recs[1:] {
+		if len(rec) < 3 {
+			continue
+		}
+		emp := strings.TrimSpace(rec[0])
+		name := strings.TrimSpace(rec[1])
+		phone := strings.TrimSpace(rec[2])
+		if emp == "" || name == "" || phone == "" {
+			continue
+		}
+		rows = append(rows, repo.WLImportRow{
+			EmployeeNumber: emp, Name: name, Phone: phone,
+			PhoneLast4: identity.Last4(phone),
+		})
+	}
+	batch := fmt.Sprintf("imp-%d", time.Now().Unix())
+	n, err := h.Repo.InsertWhitelist(r.Context(), ev.ID, orgID, batch, rows)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "导入失败")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"parsed": len(rows), "inserted": n, "batch": batch})
+}
+
+// ListWhitelist: GET /api/v1/org/events/{id}/whitelist
+func (h *Handler) ListWhitelist(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	ev, err := h.Repo.Event(r.Context(), r.PathValue("id"))
+	if err != nil || ev.OrganizerID != orgID {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "活动不存在")
+		return
+	}
+	rows, err := h.Repo.ListWhitelist(r.Context(), ev.ID, orgID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "查询失败")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"whitelist": rows, "total": len(rows)})
 }
 
 // CreateExport: POST /api/v1/org/events/{id}/export — async (§4.2/§6).

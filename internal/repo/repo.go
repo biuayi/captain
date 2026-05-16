@@ -323,5 +323,148 @@ func (r *Repo) ExportJobBare(ctx context.Context, id string) (eventID, organizer
 	return eventID, organizerID, err
 }
 
+// ---- REQ-CHANGE-001: whitelist + fingerprint identity ----
+
+type ParticipantUpsert struct {
+	EventID          string
+	ParticipantKey   string
+	IdentityType     string
+	IdentityValue    string
+	ParticipantType  string // staff | external
+	FingerprintHash  string
+	WhitelistEntryID *string // non-nil only for staff
+}
+
+// UpsertParticipantFull inserts (or returns existing) participant carrying the
+// REQ-CHANGE-001 columns. Idempotent on (event_id, participant_key).
+func (r *Repo) UpsertParticipantFull(ctx context.Context, p ParticipantUpsert) (id string, created bool, err error) {
+	err = r.pg.QueryRow(ctx,
+		`INSERT INTO participant
+		   (event_id, participant_key, identity_type, identity_value,
+		    participant_type, fingerprint_hash, whitelist_entry_id)
+		 VALUES ($1,$2,$3,NULLIF($4,''),$5,NULLIF($6,''),$7)
+		 ON CONFLICT (event_id, participant_key) DO NOTHING
+		 RETURNING id`,
+		p.EventID, p.ParticipantKey, p.IdentityType, p.IdentityValue,
+		p.ParticipantType, p.FingerprintHash, p.WhitelistEntryID).Scan(&id)
+	if err == nil {
+		return id, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", false, err
+	}
+	err = r.pg.QueryRow(ctx,
+		`SELECT id FROM participant WHERE event_id=$1 AND participant_key=$2`,
+		p.EventID, p.ParticipantKey).Scan(&id)
+	return id, false, err
+}
+
+type WLEntry struct {
+	ID, Name, PhoneLast4, Status string
+	ClaimedFP, ClaimedPID        string
+}
+
+func (r *Repo) WhitelistByEmployee(ctx context.Context, eventID, employeeNumber string) (WLEntry, error) {
+	var e WLEntry
+	var cfp, cpid *string
+	err := r.pg.QueryRow(ctx,
+		`SELECT id, name, phone_last4, status, claimed_fingerprint_hash, claimed_participant_id
+		   FROM event_whitelist_entry WHERE event_id=$1 AND employee_number=$2`,
+		eventID, employeeNumber,
+	).Scan(&e.ID, &e.Name, &e.PhoneLast4, &e.Status, &cfp, &cpid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return e, ErrNotFound
+	}
+	if cfp != nil {
+		e.ClaimedFP = *cfp
+	}
+	if cpid != nil {
+		e.ClaimedPID = *cpid
+	}
+	return e, err
+}
+
+// ClaimWhitelist binds an entry to the first device (codex concurrency-safe
+// conditional UPDATE). Returns true only for the winning claimer.
+func (r *Repo) ClaimWhitelist(ctx context.Context, entryID, participantID, fpHash string) (bool, error) {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE event_whitelist_entry
+		    SET status='claimed', claimed_participant_id=$2,
+		        claimed_fingerprint_hash=$3, claimed_at=now(), updated_at=now()
+		  WHERE id=$1 AND status='unused'
+		    AND claimed_participant_id IS NULL AND claimed_fingerprint_hash IS NULL`,
+		entryID, participantID, fpHash)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() == 1, nil
+}
+
+func (r *Repo) WhitelistClaimState(ctx context.Context, entryID string) (status, claimedPID, claimedFP string, err error) {
+	var cp, cf *string
+	err = r.pg.QueryRow(ctx,
+		`SELECT status, claimed_participant_id, claimed_fingerprint_hash
+		   FROM event_whitelist_entry WHERE id=$1`, entryID,
+	).Scan(&status, &cp, &cf)
+	if cp != nil {
+		claimedPID = *cp
+	}
+	if cf != nil {
+		claimedFP = *cf
+	}
+	return
+}
+
+type WLImportRow struct {
+	EmployeeNumber, Name, Phone, PhoneLast4 string
+}
+
+// InsertWhitelist bulk-inserts entries, skipping duplicates
+// (event_id, employee_number). Returns inserted count.
+func (r *Repo) InsertWhitelist(ctx context.Context, eventID, organizerID, batchID string, rows []WLImportRow) (int, error) {
+	n := 0
+	for _, w := range rows {
+		ct, err := r.pg.Exec(ctx,
+			`INSERT INTO event_whitelist_entry
+			   (event_id, organizer_id, employee_number, name, phone_number, phone_last4, import_batch_id)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)
+			 ON CONFLICT (event_id, employee_number) DO NOTHING`,
+			eventID, organizerID, w.EmployeeNumber, w.Name, w.Phone, w.PhoneLast4, batchID)
+		if err != nil {
+			return n, err
+		}
+		n += int(ct.RowsAffected())
+	}
+	return n, nil
+}
+
+type WLRow struct {
+	EmployeeNumber string `json:"employee_number"`
+	Name           string `json:"name"`
+	PhoneLast4     string `json:"phone_last4"`
+	Status         string `json:"status"`
+}
+
+func (r *Repo) ListWhitelist(ctx context.Context, eventID, organizerID string) ([]WLRow, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT employee_number, name, phone_last4, status
+		   FROM event_whitelist_entry
+		  WHERE event_id=$1 AND organizer_id=$2
+		  ORDER BY created_at ASC`, eventID, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WLRow
+	for rows.Next() {
+		var w WLRow
+		if err := rows.Scan(&w.EmployeeNumber, &w.Name, &w.PhoneLast4, &w.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
 // Pool exposes the pool for seed bootstrapping only.
 func (r *Repo) Pool() *pgxpool.Pool { return r.pg }
