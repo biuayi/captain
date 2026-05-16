@@ -113,6 +113,7 @@ func run() error {
 	// demo pages (throwaway, REQUIREMENTS §11.5)
 	mux.HandleFunc("GET /m/{event_id}", webui.Mobile())
 	mux.HandleFunc("GET /screen/{event_id}", webui.Screen())
+	mux.HandleFunc("GET /admin", webui.Admin())
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

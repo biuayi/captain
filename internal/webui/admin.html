@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>captain · 管理后台（demo）</title>
+<style>
+  :root{--ink:#1a1a1a;--paper:#f5f0e6;--cinnabar:#c0392b;--bamboo:#4a7c59;--gold:#c9a227}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Songti SC","STSong",serif;
+    background:radial-gradient(circle at 50% 0,#fbf6ea,#efe4cd 70%);color:var(--ink);
+    min-height:100vh;padding:24px}
+  h1{color:var(--cinnabar);letter-spacing:4px;font-size:24px;margin-bottom:4px}
+  .hint{color:#8a7a58;font-size:12px;margin-bottom:18px}
+  .tabs{display:flex;gap:10px;margin-bottom:16px}
+  .tabs button{background:#241f1b;color:var(--paper);border:1px solid #4a3f2e;
+    padding:9px 18px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:15px}
+  .tabs button.on{background:var(--cinnabar);border-color:var(--cinnabar)}
+  .panel{display:none;background:#f5f0e6;color:var(--ink);border-radius:12px;padding:20px;
+    max-width:1000px;box-shadow:0 0 0 1px var(--gold)}
+  .panel.on{display:block}
+  input{padding:9px;border:1px solid #b8a878;border-radius:7px;background:#fffdf5;
+    font-size:14px;margin:4px 6px 4px 0}
+  button.act{background:var(--bamboo);color:#fff;border:0;padding:9px 16px;border-radius:7px;
+    cursor:pointer;font-family:inherit;font-size:14px;margin:4px 4px 4px 0}
+  button.act.cin{background:var(--cinnabar)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  th,td{border:1px solid #d8cba8;padding:7px 9px;text-align:left}
+  th{background:#ece0c4}
+  .sec{margin-top:18px;border-top:1px dashed #c9b88a;padding-top:14px}
+  .sec h3{color:var(--bamboo);margin-bottom:8px;font-size:16px}
+  pre{background:#fffdf5;border:1px solid #d8cba8;padding:10px;border-radius:7px;
+    font-size:12px;overflow:auto;max-height:220px}
+  .err{color:var(--cinnabar)}
+</style>
+</head>
+<body>
+  <h1>captain · 管理后台（demo）</h1>
+  <div class="hint">注：这是后端内嵌的临时验证页，正式 UI 由 check-in-kiosk(React) 提供。demo 账号：活动方 xundao/xundao123，超管 admin/admin123。</div>
+  <div class="tabs">
+    <button id="tabOrg" class="on" onclick="show('org')">活动方后台</button>
+    <button id="tabAdmin" onclick="show('admin')">超级管理员</button>
+  </div>
+
+  <!-- ===== 活动方 ===== -->
+  <div id="org" class="panel on">
+    <div>
+      <input id="oUser" placeholder="登录名" value="xundao">
+      <input id="oPass" type="password" placeholder="密码" value="xundao123">
+      <button class="act" onclick="orgLogin()">登录</button>
+      <span id="oWho"></span>
+    </div>
+    <div class="sec"><h3>我的活动</h3><div id="oEvents">未登录</div></div>
+    <div class="sec"><h3>参与用户 / 导出</h3>
+      <div id="oEventOps"></div>
+      <div id="oParts"></div>
+    </div>
+  </div>
+
+  <!-- ===== 超管 ===== -->
+  <div id="admin" class="panel">
+    <div>
+      <input id="aUser" placeholder="登录名" value="admin">
+      <input id="aPass" type="password" placeholder="密码" value="admin123">
+      <button class="act cin" onclick="adminLogin()">登录</button>
+      <span id="aWho"></span>
+    </div>
+    <div class="sec"><h3>活动方管理</h3>
+      <div id="aList">未登录</div>
+      <div style="margin-top:12px">
+        <input id="nName" placeholder="名称">
+        <input id="nLogin" placeholder="登录名">
+        <input id="nPass" placeholder="初始密码">
+        <button class="act" onclick="createOrg()">新建活动方</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+let oTok="", aTok="";
+function show(w){ for(const k of ["org","admin"]){
+  document.getElementById(k).classList.toggle("on",k===w);
+  document.getElementById("tab"+k[0].toUpperCase()+k.slice(1)).classList.toggle("on",k===w);} }
+async function api(url,opt){ opt=opt||{}; const r=await fetch(url,opt);
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.message||("HTTP "+r.status)); return j; }
+const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+/* ---- 活动方 ---- */
+async function orgLogin(){
+  try{ const j=await api("/api/v1/org/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({login_name:oUser.value,password:oPass.value})});
+    oTok=j.token; document.getElementById("oWho").textContent=" ✓ "+(j.organizer&&j.organizer.name||"");
+    loadEvents();
+  }catch(e){ document.getElementById("oWho").innerHTML=' <span class="err">'+esc(e.message)+'</span>'; }
+}
+async function loadEvents(){
+  const j=await api("/api/v1/org/events",{headers:{Authorization:"Bearer "+oTok}});
+  const evs=j.events||[];
+  document.getElementById("oEvents").innerHTML='<table><tr><th>活动</th><th>状态</th><th>起止</th><th>预计</th><th>操作</th></tr>'+
+    evs.map(e=>`<tr><td>${esc(e.name)}</td><td>${esc(e.status)}</td>
+      <td>${esc(e.start_at).slice(0,16)} ~ ${esc(e.end_at).slice(0,16)}</td>
+      <td>${e.expected_count}</td>
+      <td><button class="act" onclick="openEvent('${e.id}','${esc(e.name)}')">查看参与/导出</button></td></tr>`).join("")+'</table>';
+}
+async function openEvent(id,name){
+  const d=await api("/api/v1/org/events/"+id,{headers:{Authorization:"Bearer "+oTok}});
+  document.getElementById("oEventOps").innerHTML=
+    `<b>${esc(name)}</b> · 实时签到数：<b>${d.checkin_count}</b>
+     <button class="act" onclick="listParts('${id}')">列出参与用户</button>
+     <button class="act cin" onclick="doExport('${id}')">导出 CSV</button>
+     <span id="exMsg"></span>`;
+  document.getElementById("oParts").innerHTML="";
+}
+async function listParts(id){
+  const j=await api("/api/v1/org/events/"+id+"/participants",{headers:{Authorization:"Bearer "+oTok}});
+  const ps=(j.participants||[]).slice(0,200);
+  document.getElementById("oParts").innerHTML=`共 ${j.total} 人（仅显示前 ${ps.length}）<table>
+    <tr><th>参与ID</th><th>身份</th><th>状态</th><th>最后步骤</th><th>签到时间</th></tr>`+
+    ps.map(p=>`<tr><td>${esc(p.ParticipantID||p.participant_id)}</td><td>${esc(p.IdentityType||p.identity_type)}</td>
+      <td>${esc(p.Status||p.status)}</td><td>${esc(p.LastStep||p.last_step)}</td>
+      <td>${esc(p.CheckinAt||p.checkin_at||"")}</td></tr>`).join("")+`</table>`;
+}
+async function doExport(id){
+  const m=document.getElementById("exMsg"); m.textContent=" 导出中…";
+  try{ const j=await api("/api/v1/org/events/"+id+"/export",{method:"POST",headers:{Authorization:"Bearer "+oTok}});
+    for(let i=0;i<30;i++){ await new Promise(r=>setTimeout(r,1000));
+      const s=await api("/api/v1/org/exports/"+j.job_id,{headers:{Authorization:"Bearer "+oTok}});
+      if(s.status==="done"){ m.textContent=" 完成"; downloadCSV(j.job_id); return; }
+      if(s.status==="failed"){ m.innerHTML=' <span class="err">导出失败</span>'; return; } }
+    m.textContent=" 超时";
+  }catch(e){ m.innerHTML=' <span class="err">'+esc(e.message)+'</span>'; }
+}
+async function downloadCSV(job){
+  const r=await fetch("/api/v1/org/exports/"+job+"/download",{headers:{Authorization:"Bearer "+oTok}});
+  const b=await r.blob(); const u=URL.createObjectURL(b);
+  const a=document.createElement("a"); a.href=u; a.download="export-"+job+".csv"; a.click(); URL.revokeObjectURL(u);
+}
+
+/* ---- 超管 ---- */
+async function adminLogin(){
+  try{ const j=await api("/api/v1/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({login_name:aUser.value,password:aPass.value})});
+    aTok=j.token; document.getElementById("aWho").textContent=" ✓ 超管"; loadOrgs();
+  }catch(e){ document.getElementById("aWho").innerHTML=' <span class="err">'+esc(e.message)+'</span>'; }
+}
+async function loadOrgs(){
+  const j=await api("/api/v1/admin/organizers",{headers:{Authorization:"Bearer "+aTok}});
+  const os=j.organizers||[];
+  document.getElementById("aList").innerHTML='<table><tr><th>名称</th><th>登录名</th><th>状态</th><th>操作</th></tr>'+
+    os.map(o=>`<tr><td>${esc(o.Name||o.name)}</td><td>${esc(o.LoginName||o.login_name)}</td>
+      <td>${esc(o.Status||o.status)}</td>
+      <td><button class="act" onclick="setStatus('${o.ID||o.id}','active')">启用</button>
+          <button class="act cin" onclick="setStatus('${o.ID||o.id}','disabled')">禁用</button></td></tr>`).join("")+'</table>';
+}
+async function createOrg(){
+  try{ await api("/api/v1/admin/organizers",{method:"POST",headers:{Authorization:"Bearer "+aTok,
+      "Content-Type":"application/json"},body:JSON.stringify({name:nName.value,login_name:nLogin.value,password:nPass.value})});
+    loadOrgs();
+  }catch(e){ alert(e.message); }
+}
+async function setStatus(id,st){
+  try{ await api("/api/v1/admin/organizers/"+id+"/status",{method:"POST",headers:{Authorization:"Bearer "+aTok,
+      "Content-Type":"application/json"},body:JSON.stringify({status:st})}); loadOrgs();
+  }catch(e){ alert(e.message); }
+}
+</script>
+</body>
+</html>

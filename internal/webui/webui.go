@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-//go:embed mobile.html screen.html
+//go:embed mobile.html screen.html admin.html
 var files embed.FS
 
 func page(name string) http.HandlerFunc {
@@ -24,3 +24,6 @@ func Mobile() http.HandlerFunc { return page("mobile.html") }
 
 // Screen serves the live big-screen page (/screen/{event_id}).
 func Screen() http.HandlerFunc { return page("screen.html") }
+
+// Admin serves the throwaway organizer/super-admin console (/admin).
+func Admin() http.HandlerFunc { return page("admin.html") }
