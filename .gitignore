@@ -1,0 +1,21 @@
+# build
+/bin/
+captain
+*.test
+*.out
+
+# env / secrets
+.env
+.env.local
+
+# runtime data (local storage / exports)
+/data/
+
+# go
+/vendor/
+
+# editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
