@@ -25,3 +25,10 @@
 - **T-071/T-072** 迁移 0002(participation 部分索引，codex DB优化)/0003(`event_whitelist_entry` + participant fingerprint/type/whitelist 列+约束)；`internal/identity`(指纹服务端归一化+HMAC pepper)；repo 白名单查/claim(并发安全条件UPDATE)/CSV导入/列表 + `UpsertParticipantFull`；participation staff/external 分支(additive，无 participant_type 走 legacy 保住 demo+压测)；organizer 白名单 CSV 导入/列表；seed 幂等补种白名单。
 - 容器验证：staff 命中 / 同设备幂等放行 / 换设备 `ENTRY_CLAIMED_ELSEWHERE` / `PHONE_MISMATCH` / CSV 导入 / 白名单回补 / legacy+external 兼容 / 计数去重语义不破。`go build/vet/test` 全绿。commit `c088026`。
 - codex 设计评审定稿见 `docs/CODEX-REVIEW-001.md`（含 DB 优化 defer 论证、多 Agent 泳道）。
+
+## M1/M3 前端 monorepo（DONE 脚手架+构建验证，check-in-kiosk）
+
+- **T-011** npm workspaces monorepo：`shared / mobile / big-screen / admin`；统一 tsconfig.base、vite、dev 代理 `/api`+`/assets`→captain。
+- **T-030** `@kiosk/shared`：契约类型(对齐 captain + REQ-CHANGE-001)、fetch API client（参与/活动方/超管全接口）、被动浏览器指纹采集（服务端重算）、deviceId/格式化。
+- 验证：`npm install`(71包) OK；`npm run typecheck` 干净；mobile/big-screen/admin `vite build` 全绿(dist 产出)。commit `16e6f67`。
+- 说明：T-031/032/033/034 三端 UI 已实现并构建通过，但**浏览器端到端联调未做**（需前端跑起来连后端栈），状态 REVIEW，见 PROGRESS。
