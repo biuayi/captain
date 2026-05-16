@@ -86,7 +86,9 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusInternalServerError, "internal", "sign failed")
 		return
 	}
-	httpx.SetSessionCookie(w, sess, exp, r.TLS != nil)
+	// 经隧道/反代时 TLS 在边缘终止（r.TLS 为 nil），按 X-Forwarded-Proto 判断（review 修复）
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	httpx.SetSessionCookie(w, sess, exp, secure)
 
 	raw, err := h.Repo.FlowSchema(r.Context(), ev.FlowConfigID)
 	if err != nil {
