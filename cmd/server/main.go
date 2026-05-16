@@ -16,6 +16,7 @@ import (
 	"github.com/hertz/captain/internal/config"
 	"github.com/hertz/captain/internal/export"
 	"github.com/hertz/captain/internal/httpx"
+	"github.com/hertz/captain/internal/loginguard"
 	"github.com/hertz/captain/internal/organizer"
 	"github.com/hertz/captain/internal/participation"
 	"github.com/hertz/captain/internal/realtime"
@@ -24,6 +25,7 @@ import (
 	"github.com/hertz/captain/internal/storage"
 	"github.com/hertz/captain/internal/store"
 	"github.com/hertz/captain/internal/token"
+	"github.com/hertz/captain/internal/turnstile"
 	"github.com/hertz/captain/internal/webui"
 )
 
@@ -80,11 +82,19 @@ func run() error {
 		}
 	}()
 
+	guard := loginguard.New(st.Redis)
+	ts := turnstile.New(cfg.TurnstileMode, cfg.TurnstileSite, cfg.TurnstileSecret)
+	if ts.Enabled() {
+		log.Printf("turnstile: ENFORCE (sitekey set=%v)", cfg.TurnstileSite != "")
+	} else {
+		log.Printf("turnstile: off (set CAPTAIN_TURNSTILE_MODE=enforce + keys for prod)")
+	}
+
 	pa := &participation.Handler{Repo: r, Sig: sig, RT: rt,
 		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
-		Store: strg, BaseURL: cfg.PublicBaseURL}
-	ad := &admin.Handler{Repo: r, Sig: sig}
+		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts}
+	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -96,7 +106,12 @@ func run() error {
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/steps/{step_id}/submit", pa.Submit)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/count", pa.Count)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/info", pa.Info)
+	mux.HandleFunc("GET /api/v1/p/e/{event_id}/qr", pa.QR)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/stream", pa.Stream)
+	mux.HandleFunc("GET /api/v1/p/config", func(w http.ResponseWriter, _ *http.Request) {
+		httpx.JSON(w, http.StatusOK, map[string]any{
+			"turnstile_mode": cfg.TurnstileMode, "turnstile_sitekey": cfg.TurnstileSite})
+	})
 
 	// organizer
 	mux.HandleFunc("POST /api/v1/org/login", og.Login)

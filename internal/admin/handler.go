@@ -7,34 +7,53 @@ import (
 	"time"
 
 	"github.com/hertz/captain/internal/httpx"
+	"github.com/hertz/captain/internal/loginguard"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/token"
+	"github.com/hertz/captain/internal/turnstile"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Handler struct {
-	Repo *repo.Repo
-	Sig  *token.Signer
+	Repo  *repo.Repo
+	Sig   *token.Signer
+	Guard *loginguard.Guard
+	TS    *turnstile.Verifier
 }
 
 type loginReq struct {
 	LoginName string `json:"login_name"`
 	Password  string `json:"password"`
+	Turnstile string `json:"turnstile_token"`
 }
 
-// Login: POST /api/v1/admin/login
+// Login: POST /api/v1/{adminslug}/login — constant 3s delay + 10/10min
+// lockout + optional Turnstile (REQ-CHANGE-003).
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginReq
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.Fail(w, http.StatusBadRequest, "bad_request", "invalid body")
 		return
 	}
-	c, err := h.Repo.AdminByLogin(r.Context(), req.LoginName)
+	ctx := r.Context()
+	loginguard.Wait(ctx)
+	const scope = "admin"
+	if h.Guard.Locked(ctx, scope, req.LoginName) {
+		httpx.Fail(w, http.StatusLocked, "account_locked", "账号已锁定，请稍后再试")
+		return
+	}
+	if !h.TS.Verify(ctx, req.Turnstile, httpx.ClientIP(r)) {
+		httpx.Fail(w, http.StatusForbidden, "captcha_failed", "人机验证未通过")
+		return
+	}
+	c, err := h.Repo.AdminByLogin(ctx, req.LoginName)
 	if err != nil || c.Status != "active" ||
 		bcrypt.CompareHashAndPassword([]byte(c.PasswordHash), []byte(req.Password)) != nil {
+		h.Guard.RecordFailure(ctx, scope, req.LoginName)
 		httpx.Fail(w, http.StatusUnauthorized, "bad_credentials", "登录失败")
 		return
 	}
+	h.Guard.Reset(ctx, scope, req.LoginName)
 	tok, _ := h.Sig.Sign(token.Claims{
 		Kind: token.KindAuth, Role: "admin", Subject: c.ID,
 		ExpiresAt: time.Now().Add(12 * time.Hour).Unix(),

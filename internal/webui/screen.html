@@ -1,582 +1,263 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>寻道大千 · 周年庆典 · 公益大屏</title>
+<title>寻道大千周年庆公益大屏</title>
 <style>
-/* ── 设计基调：亮色国风宣纸，水墨山水为底，朱砂+描金点缀 ── */
-:root {
-  --ink:       #2b3020;
-  --cinnabar:  #c0392b;
-  --crimson:   #e8251a;
-  --gold:      #c8902a;
-  --gold-lt:   #f0c860;
-  --jade:      #3d6b5a;
-  --paper:     #fdf6e8;
-  --paper2:    #f5ead0;
-  --mist:      rgba(253,246,232,.62);
-  --ink-faint: rgba(43,48,32,.12);
+:root{
+  --bg:#f5ebd3;--paper:#f8f0dd;--ink:#2f241c;--muted:#7d6553;--red:#C0392B;--gold:#C9A84C;
+  --ring:1100;--ringLen:0;--w:100vw;--h:100vh;
 }
-*, *::before, *::after { margin:0; padding:0; box-sizing:border-box }
-html, body { width:100%; height:100%; overflow:hidden }
-body {
-  font-family: "Songti SC","STSong","Noto Serif SC","SimSun",serif;
-  color: var(--ink);
-  background: var(--paper2);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#e9dcc2;color:var(--ink)}
+body{
+  font-family:"STSong","Songti SC","Noto Serif CJK SC",serif;
+  background:
+    radial-gradient(circle at 18% 22%,rgba(192,57,43,.10),transparent 18%),
+    radial-gradient(circle at 82% 20%,rgba(201,168,76,.12),transparent 20%),
+    radial-gradient(circle at 50% 72%,rgba(47,36,28,.06),transparent 26%),
+    linear-gradient(180deg,#f4e8ce 0%,#f6efdd 38%,#efe3c7 100%);
 }
-
-/* ── 背景层 ── */
-.bg-img {
-  position: fixed; inset: 0; z-index: 0;
-  background: var(--paper2) url("/assets/news-bg.png") center top / cover no-repeat;
+.bg{
+  position:fixed;inset:0;width:100%;height:100%;object-fit:cover;opacity:.22;mix-blend-mode:multiply;pointer-events:none;
 }
-/* 宣纸蒙层：让山水隐约透出，保证可读性 */
-.bg-paper {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(253,246,232,.72) 0%,
-    rgba(253,246,232,.50) 40%,
-    rgba(253,246,232,.60) 75%,
-    rgba(253,246,232,.80) 100%
-  );
+.frame{
+  position:relative;z-index:1;height:100%;padding:2.2vh 3.2vw 3.8vh;display:flex;flex-direction:column;justify-content:space-between;
 }
-/* 中央辉光，让心形区域更通透 */
-.bg-glow {
-  position: fixed; inset: 0; z-index: 2; pointer-events: none;
-  background: radial-gradient(ellipse 60% 55% at 50% 52%,
-    rgba(255,255,255,.55) 0%,
-    rgba(255,255,255,.0) 100%);
+.top{
+  position:relative;display:flex;align-items:flex-start;justify-content:center;min-height:14vh;
 }
-
-/* ── 粒子画布（祥云散粒，极淡） ── */
-#particles { position:fixed; inset:0; z-index:3; pointer-events:none; opacity:.45 }
-
-/* ── 顶部页眉条 ── */
-.navtop {
-  position: fixed; top:0; left:0; width:100%; z-index:10;
-  pointer-events:none; object-fit:cover; height: clamp(60px,8.2vw,120px);
-  opacity: .92;
+.topbar{
+  position:absolute;top:0;left:50%;transform:translateX(-50%);width:min(72vw,1380px);max-height:11vh;object-fit:contain;opacity:.92;
 }
-
-/* ── 顶部活动名区域 ── */
-.header {
-  position: relative; z-index: 15;
-  margin-top: clamp(52px,7vw,110px);
-  display: flex; flex-direction:column; align-items:center;
-  gap: 4px;
+.title-wrap{
+  margin-top:3.2vh;text-align:center;padding:1.4vh 2.2vw 0;max-width:78vw;
 }
-.event-name {
-  font-size: clamp(26px,4.4vw,62px);
-  font-weight: 700;
-  letter-spacing: clamp(6px,1vw,16px);
-  color: var(--cinnabar);
-  text-shadow:
-    0 1px 0 rgba(255,255,255,.9),
-    0 2px 14px rgba(192,57,43,.35);
+.eyebrow{
+  font-size:min(1.4vw,28px);letter-spacing:.35em;color:var(--red);text-indent:.35em;text-transform:uppercase;
 }
-/* 描金边 */
-.event-name::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  -webkit-text-stroke: 1px var(--gold);
-  color: transparent;
-  pointer-events: none;
+.title{
+  margin:.8vh 0 0;font-family:"STKaiti","KaiTi",serif;font-size:min(3.5vw,68px);font-weight:700;letter-spacing:.08em;
 }
-.event-name-wrap { position: relative }
-.subtitle {
-  font-size: clamp(12px,1.5vw,20px);
-  letter-spacing: clamp(5px,.8vw,13px);
-  color: var(--jade);
-  text-shadow: 0 1px 0 rgba(255,255,255,.8);
+.title::after{
+  content:"";display:block;margin:1.1vh auto 0;width:min(28vw,520px);height:2px;
+  background:linear-gradient(90deg,transparent,rgba(201,168,76,.25),var(--gold),rgba(201,168,76,.25),transparent);
 }
-
-/* ── 金色分割线（祥云纹） ── */
-.divider {
-  position: relative; z-index: 15;
-  margin: clamp(6px,.8vh,14px) 0;
-  display: flex; align-items: center; gap: 14px;
-  width: clamp(260px,55vw,760px);
+.main{
+  position:relative;flex:1;display:grid;place-items:center;
 }
-.divider::before, .divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+.halo{
+  position:absolute;width:min(42vw,820px);aspect-ratio:1;border-radius:50%;
+  background:
+    radial-gradient(circle,rgba(255,255,255,.55) 0 22%,rgba(201,168,76,.13) 44%,rgba(201,168,76,0) 68%),
+    radial-gradient(circle at 48% 48%,rgba(192,57,43,.08),transparent 62%);
+  filter:none;pointer-events:none;
 }
-.divider-icon {
-  font-size: clamp(14px,1.6vw,22px);
-  color: var(--gold);
-  line-height: 1;
-  text-shadow: 0 0 8px rgba(200,144,42,.6);
+.ring{
+  position:absolute;width:min(40vw,760px);aspect-ratio:1;transform:rotate(-90deg);overflow:visible;
 }
-
-/* ── 心形主体 ── */
-.heart-section {
-  position: relative; z-index: 15;
-  display: flex; flex-direction:column; align-items:center;
+.ring circle{fill:none}
+.track{stroke:rgba(111,85,57,.14);stroke-width:10}
+.progress{
+  stroke:var(--gold);stroke-width:14;stroke-linecap:round;
+  stroke-dasharray:var(--ring);stroke-dashoffset:calc(var(--ring) - var(--ringLen));
+  transition:stroke-dashoffset .6s ease,opacity .6s ease;
 }
-.heartWrap {
-  position: relative;
-  width:  min(38vh, 44vw);
-  height: min(38vh, 44vw);
-  filter:
-    grayscale(calc(1 - var(--p, 0)))
-    brightness(calc(.52 + .60 * var(--p, 0)))
-    saturate(calc(.3  + 1.4 * var(--p, 0)))
-    drop-shadow(0 0 calc(10px + 70px * var(--p,0)) rgba(232,37,26, calc(.1 + .72*var(--p,0))))
-    drop-shadow(0 0 calc(4px + 20px  * var(--p,0)) rgba(200,144,42, calc(.05 + .35*var(--p,0))));
-  transition: filter 1.4s ease;
-  transform-origin: 50% 55%;
+.core{
+  position:relative;display:flex;flex-direction:column;align-items:center;gap:1.1vh;text-align:center;
 }
-/* 一次性心跳动画：弹性缓出 */
-.beat { animation: heartbeat .70s cubic-bezier(.18,.72,.28,1) }
-@keyframes heartbeat {
-  0%   { transform: scale(1) }
-  20%  { transform: scale(1.18) }
-  42%  { transform: scale(.96) }
-  64%  { transform: scale(1.09) }
-  82%  { transform: scale(.99) }
-  100% { transform: scale(1) }
+.label{
+  font-family:"STKaiti","KaiTi",serif;font-size:min(2vw,36px);color:var(--muted);letter-spacing:.24em;text-indent:.24em;
 }
-/* 心形 SVG */
-.heart-svg { width:100%; height:100%; display:block }
-/* 进度百分比叠加在心形中央 */
-.pct-overlay {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  padding-bottom: 8%;          /* 视觉居中微调 */
+.count{
+  font-family:"SFMono-Regular","Roboto Mono","Consolas",monospace;font-variant-numeric:tabular-nums;
+  font-size:min(20vw,320px);line-height:.9;color:var(--ink);text-shadow:0 .08em .18em rgba(255,250,238,.45);
 }
-.pct-text {
-  font-size: clamp(32px, 7vw, 92px);
-  font-weight: 700;
-  color: #fff;
-  text-shadow:
-    0 0 12px rgba(0,0,0,.55),
-    0 2px 8px rgba(0,0,0,.40);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 2px;
-  line-height: 1;
-  transition: opacity .3s;
+.meta{
+  display:flex;gap:min(5vw,88px);justify-content:center;flex-wrap:wrap;margin-top:1.2vh;color:var(--muted)
 }
-
-/* ── 数据面板 ── */
-.stats-panel {
-  position: relative; z-index: 15;
-  margin-top: clamp(10px,1.6vh,22px);
-  display: flex;
-  gap: clamp(20px,5vw,72px);
-  align-items: stretch;
+.stat{
+  min-width:13vw;padding:.75vh 1.2vw;border-top:1px solid rgba(201,168,76,.34);border-bottom:1px solid rgba(192,57,43,.16);
+  background:linear-gradient(90deg,rgba(255,255,255,.18),rgba(255,255,255,.04));
 }
-.stat-card {
-  background: rgba(253,246,232,.78);
-  border: 1px solid rgba(200,144,42,.35);
-  border-radius: 8px;
-  padding: clamp(10px,1.4vh,20px) clamp(22px,3.2vw,52px);
-  display: flex; flex-direction:column; align-items:center; gap:4px;
-  box-shadow:
-    0 2px 16px rgba(43,48,32,.10),
-    inset 0 1px 0 rgba(255,255,255,.6);
-  /* 淡雅描金边框 */
-  position: relative;
+.stat b{
+  display:block;margin-top:.2vh;font-size:min(2.3vw,42px);font-family:"SFMono-Regular","Roboto Mono","Consolas",monospace;color:var(--red)
 }
-.stat-card::before {
-  content: "";
-  position: absolute; inset:-1px; border-radius:9px;
-  background: linear-gradient(135deg,
-    rgba(200,144,42,.45) 0%,
-    rgba(200,144,42,.08) 50%,
-    rgba(200,144,42,.45) 100%);
-  z-index:-1;
-  pointer-events:none;
+.ink-zone{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.ink{
+  position:absolute;left:50%;top:50%;width:26px;height:26px;border-radius:50%;
+  background:radial-gradient(circle,rgba(192,57,43,.20),rgba(192,57,43,.10) 45%,rgba(47,36,28,.08) 62%,transparent 70%);
+  border:1px solid rgba(47,36,28,.10);transform:translate(-50%,-50%) scale(.4);opacity:0;animation:ripple .9s ease-out forwards;
 }
-.stat-cap {
-  font-size: clamp(11px, 1.3vw, 17px);
-  letter-spacing: clamp(4px,.6vw,9px);
-  color: var(--jade);
-  white-space: nowrap;
+@keyframes ripple{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.35)}
+  20%{opacity:.9}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(4.8)}
 }
-.stat-val {
-  font-size: clamp(34px, 5.8vw, 80px);
-  font-weight: 700;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  letter-spacing: 2px;
-  text-shadow: 0 1px 0 rgba(255,255,255,.8);
-  /* 数字渐变：朱砂色 */
-  background: linear-gradient(175deg, #3a1e0e 0%, var(--cinnabar) 60%, var(--gold) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.bottom{
+  display:flex;align-items:center;justify-content:center;gap:1.2vw;
+  min-height:9vh;padding-top:1.2vh;border-top:1px solid rgba(201,168,76,.28);color:#6c5441;
+  font-size:min(1.4vw,27px);letter-spacing:.08em;
 }
-
-/* ── 公益署名 ── */
-.charity {
-  position: relative; z-index: 15;
-  margin-top: clamp(8px,1.4vh,18px);
-  display: flex; align-items: center; gap: 10px;
-  font-size: clamp(11px,1.25vw,17px);
-  color: #5a6b50;
-  letter-spacing: 2px;
+.charity-logo{height:min(4.4vh,46px);object-fit:contain;opacity:.9}
+.seal{
+  position:absolute;right:4.4vw;bottom:11.5vh;width:min(9vw,170px);aspect-ratio:1;border:1px solid rgba(192,57,43,.28);
+  color:rgba(192,57,43,.70);display:grid;place-items:center;font-family:"STKaiti","KaiTi",serif;font-size:min(1.8vw,32px);
+  transform:rotate(-8deg);background:rgba(255,248,239,.16)
 }
-.charity img {
-  height: clamp(22px,2.6vw,36px);
-  width: auto;
+.qr-card{
+  position:absolute;left:4.4vw;bottom:11vh;display:flex;flex-direction:column;align-items:center;
+  gap:.7vh;padding:1.2vh 1.1vw;background:rgba(255,248,239,.82);
+  border:1px solid rgba(201,168,76,.5);border-radius:8px;box-shadow:0 .4vh 1.4vh rgba(47,36,28,.12);
 }
-.charity-name { color: var(--cinnabar); font-weight:700 }
-
-/* ── 底部装饰 ── */
-.foot {
-  position: fixed; bottom:12px; left:50%; transform:translateX(-50%);
-  z-index: 15;
-  font-size: clamp(10px,.9vw,13px);
-  color: #8a9080;
-  letter-spacing: 5px;
-  white-space: nowrap;
-}
-
-/* ── 实时状态指示 ── */
-.live-badge {
-  position: fixed; top: clamp(16px,2.2vw,30px); right: clamp(16px,2vw,32px);
-  z-index: 20;
-  display: flex; align-items:center; gap:7px;
-  font-size: clamp(11px,1.1vw,15px);
-  color: var(--jade);
-  letter-spacing: 3px;
-  background: rgba(253,246,232,.72);
-  border: 1px solid rgba(61,107,90,.25);
-  border-radius: 20px;
-  padding: 5px 14px 5px 10px;
-}
-.live-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--jade);
-  box-shadow: 0 0 7px rgba(61,107,90,.7);
-  animation: pulse-dot 1.6s ease-in-out infinite;
-}
-@keyframes pulse-dot { 50% { opacity:.22; box-shadow:none } }
-
-/* ── 祥云装饰线（顶部、底部） ── */
-.cloud-strip-t, .cloud-strip-b {
-  position: fixed; left:0; width:100%; z-index:8; pointer-events:none;
-}
-.cloud-strip-t { top: clamp(55px,7.5vw,115px) }
-.cloud-strip-b { bottom: 28px }
-.cloud-line {
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(200,144,42,.40) 20%, rgba(200,144,42,.40) 80%, transparent 100%);
+.qr-card img{width:min(11vw,164px);height:min(11vw,164px);image-rendering:pixelated;background:#fff;border-radius:4px}
+.qr-card span{font-family:"STKaiti","KaiTi",serif;font-size:min(1.4vw,24px);color:var(--red);letter-spacing:.22em;text-indent:.22em}
+@media (max-aspect-ratio: 16/9){
+  .count{font-size:min(17vw,250px)}
+  .meta{gap:3vw}
+  .bottom{font-size:min(2vw,24px)}
+  .qr-card img{width:min(16vw,150px);height:min(16vw,150px)}
 }
 </style>
 </head>
 <body>
-
-<!-- 背景层 -->
-<div class="bg-img" aria-hidden="true"></div>
-<div class="bg-paper" aria-hidden="true"></div>
-<div class="bg-glow" aria-hidden="true"></div>
-<canvas id="particles" aria-hidden="true"></canvas>
-
-<!-- 顶部页眉条 -->
-<img class="navtop" src="/assets/nav-top.png" alt="" onerror="this.style.opacity='0'">
-
-<!-- 顶部装饰线 -->
-<div class="cloud-strip-t"><div class="cloud-line"></div></div>
-
-<!-- 实时状态 -->
-<div class="live-badge">
-  <span class="live-dot"></span>
-  <span id="live-st">连接中…</span>
-</div>
-
-<!-- ── 活动名 ── -->
-<div class="header">
-  <div class="event-name-wrap">
-    <div class="event-name" id="event-name" data-text="寻道大千">寻道大千</div>
-  </div>
-  <div class="subtitle">周 年 庆 典 &nbsp;·&nbsp; 公 益 同 行</div>
-</div>
-
-<!-- 分割线 -->
-<div class="divider"><span class="divider-icon">✦</span></div>
-
-<!-- ── 心形主角 ── -->
-<div class="heart-section">
-  <div class="heartWrap" id="heartWrap">
-    <svg class="heart-svg" id="heart-svg" viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <!-- 玉/朱砂渐变：p=0 时偏灰玉，p=1 时朱砂鲜红 -->
-        <linearGradient id="hg" x1="30%" y1="0%" x2="70%" y2="100%">
-          <stop offset="0%"   stop-color="#f0c8c0"/>
-          <stop offset="40%"  stop-color="#e8251a"/>
-          <stop offset="100%" stop-color="#8b0000"/>
-        </linearGradient>
-        <!-- 描金边：随进度从淡到亮 -->
-        <linearGradient id="stroke-g" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%"   stop-color="#f0c860"/>
-          <stop offset="50%"  stop-color="#c8902a"/>
-          <stop offset="100%" stop-color="#f0c860"/>
-        </linearGradient>
-        <!-- 内嵌光晕滤镜 -->
-        <filter id="inner-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-          <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-        </filter>
-      </defs>
-      <!-- 心形主体 -->
-      <path id="heart-path"
-        fill="url(#hg)"
-        stroke="url(#stroke-g)"
-        stroke-width="1.4"
-        d="M50 82
-           C50 82 5 52 5 28
-           C5 14 15 5 27 5
-           C35 5 43 10 50 18
-           C57 10 65 5 73 5
-           C85 5 95 14 95 28
-           C95 52 50 82 50 82 Z"/>
-      <!-- 内嵌高光（左上，玉感） -->
-      <ellipse cx="35" cy="28" rx="10" ry="7"
-        fill="rgba(255,255,255,.30)"
-        transform="rotate(-20,35,28)"/>
-      <!-- 中心「缘」字（可选，克制） -->
-      <text x="50" y="52"
-        text-anchor="middle"
-        font-family="'Songti SC','STSong',serif"
-        font-size="22"
-        font-weight="700"
-        fill="rgba(255,255,255,.82)"
-        filter="url(#inner-glow)"
-        letter-spacing="1">缘</text>
-    </svg>
-    <div class="pct-overlay">
-      <div class="pct-text" id="pct-el">0%</div>
+<img class="bg" src="/assets/news-bg.png" alt="" onerror="this.style.display='none'">
+<div class="frame">
+  <header class="top">
+    <img class="topbar" src="/assets/nav-top.png" alt="" onerror="this.style.display='none'">
+    <div class="title-wrap">
+      <div class="eyebrow">ANNIVERSARY · CHARITY</div>
+      <h1 id="eventName" class="title">寻道大千周年庆</h1>
     </div>
+  </header>
+  <main class="main">
+    <div class="halo"></div>
+    <svg class="ring" viewBox="0 0 400 400" aria-hidden="true">
+      <circle class="track" cx="200" cy="200" r="175"></circle>
+      <circle id="progressCircle" class="progress" cx="200" cy="200" r="175"></circle>
+    </svg>
+    <section class="core" aria-live="polite">
+      <div class="label">结缘道友</div>
+      <div id="count" class="count">0</div>
+      <div class="meta">
+        <div class="stat">预计参与<b id="expected">0</b></div>
+        <div class="stat">进度<b id="percent">0%</b></div>
+      </div>
+    </section>
+    <div id="inkZone" class="ink-zone"></div>
+  </main>
+  <footer class="bottom">
+    <span>本场公益由 广东省游心公益基金会 联合发起 · 以善入道</span>
+    <img class="charity-logo" src="/assets/youxin-logo.png" alt="广东省游心公益基金会" onerror="this.style.display='none'">
+  </footer>
+  <div class="seal">寻道有善</div>
+  <div class="qr-card">
+    <img id="qrImg" alt="扫码签到" onerror="this.style.visibility='hidden'">
+    <span>扫码签到</span>
   </div>
 </div>
-
-<!-- 分割线 -->
-<div class="divider"><span class="divider-icon">❧</span></div>
-
-<!-- ── 数据面板 ── -->
-<div class="stats-panel">
-  <div class="stat-card">
-    <div class="stat-cap">结 缘 道 友</div>
-    <div class="stat-val" id="count-el">0</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-cap">预 计 参 与</div>
-    <div class="stat-val" id="exp-el">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-cap">结 缘 进 度</div>
-    <div class="stat-val" id="prog-el">0%</div>
-  </div>
-</div>
-
-<!-- ── 公益署名 ── -->
-<div class="charity">
-  <img id="charity-logo" src="/assets/youxin-logo.png" alt="游心公益"
-       onerror="this.style.display='none'">
-  <span>本场公益由 <span class="charity-name">广东省游心公益基金会</span> 联合发起 · 以善入道</span>
-</div>
-
-<!-- 底部装饰线 -->
-<div class="cloud-strip-b"><div class="cloud-line"></div></div>
-
-<!-- 底部版权 -->
-<div class="foot">国 风 水 墨 &nbsp;·&nbsp; 仙 途 大 千 &nbsp;·&nbsp; 实 时 公 益 大 屏</div>
-
 <script>
-'use strict';
-/* ─── 工具 ─── */
-const $ = id => document.getElementById(id);
-
-/* ─── 元素引用 ─── */
-const heartWrap = $('heartWrap');
-const pctEl     = $('pct-el');
-const countEl   = $('count-el');
-const expEl     = $('exp-el');
-const progEl    = $('prog-el');
-const liveStEl  = $('live-st');
-const eventNameEl = $('event-name');
-
-/* ─── 状态 ─── */
-const eventId = location.pathname.split('/').filter(Boolean)[1] || '';
-let expected  = 0;
-let last      = -1;          // 上一次 count，-1 = 尚未初始化
-
-/* ─── 数字缓动渲染 ─── */
-// displayCount 是当前屏幕显示值（可浮点），targetCount 是目标
-let displayCount = 0;
-let targetCount  = 0;
-let rafId = null;
-
-function animCount() {
-  const diff = targetCount - displayCount;
-  if (Math.abs(diff) < 0.5) {
-    displayCount = targetCount;
-    renderDisplay(targetCount);
-    rafId = null;
-    return;
-  }
-  // 指数缓动：每帧靠近 12%
-  displayCount += diff * 0.12;
-  renderDisplay(Math.round(displayCount));
-  rafId = requestAnimationFrame(animCount);
-}
-
-function setTarget(c) {
-  targetCount = c;
-  if (!rafId) rafId = requestAnimationFrame(animCount);
-}
-
-function renderDisplay(c) {
-  countEl.textContent = c.toLocaleString('zh-CN');
-}
-
-/* ─── 进度计算 ─── */
-function progress(count) {
-  if (!expected) return 0;
-  return Math.max(0, Math.min(1, count / (expected * 0.9)));
-}
-
-/* ─── 渲染（亮度+进度文字） ─── */
-let currentP = 0;
-let pRafId   = null;
-let targetP  = 0;
-
-function animP() {
-  const diff = targetP - currentP;
-  if (Math.abs(diff) < 0.001) {
-    currentP = targetP;
-    applyP(currentP);
-    pRafId = null;
-    return;
-  }
-  currentP += diff * 0.06;
-  applyP(currentP);
-  pRafId = requestAnimationFrame(animP);
-}
-
-function applyP(p) {
-  heartWrap.style.setProperty('--p', p.toFixed(4));
-  pctEl.textContent  = Math.round(p * 100) + '%';
-  progEl.textContent = Math.round(p * 100) + '%';
-}
-
-function setP(p) {
-  targetP = p;
-  if (!pRafId) pRafId = requestAnimationFrame(animP);
-}
-
-/* ─── 心跳 Beat（一次性，count 增大时触发） ─── */
-function beat() {
-  heartWrap.classList.remove('beat');
-  void heartWrap.offsetWidth;  // 强制重排，重置动画
-  heartWrap.classList.add('beat');
-}
-
-/* ─── /info 拉取 ─── */
-async function loadInfo() {
-  try {
-    const r = await fetch(`/api/v1/p/e/${eventId}/info`);
-    const j = await r.json();
-    const name = (j.name || '').trim();
-    if (name) {
-      eventNameEl.textContent = name;
-      eventNameEl.dataset.text = name;
-    }
-    expected = (j.expected_count | 0);
-    expEl.textContent = expected > 0 ? expected.toLocaleString('zh-CN') : '—';
-  } catch (_) { /* 网络异常静默降级 */ }
-}
-
-/* ─── SSE 连接（稳健重连，无 setInterval 泄漏） ─── */
-let esRef = null;
-let reconnectTimer = null;
-
-function connect() {
-  if (esRef) { esRef.close(); esRef = null; }
-  clearTimeout(reconnectTimer);
-
-  const es = new EventSource(`/api/v1/p/e/${eventId}/stream`);
-  esRef = es;
-
-  es.onopen = () => { liveStEl.textContent = '实时连接' };
-
-  es.onmessage = ev => {
-    try {
-      const s = JSON.parse(ev.data);
-      const c = s.count | 0;
-      if (last >= 0 && c > last) beat();   // 有新签到 → 爱心跳一下
-      last = c;
-      setTarget(c);
-      setP(progress(c));
-    } catch (_) {}
+(() => {
+  const eventId = location.pathname.split('/')[2] || "";
+  const els = {
+    name: document.getElementById("eventName"),
+    count: document.getElementById("count"),
+    expected: document.getElementById("expected"),
+    percent: document.getElementById("percent"),
+    inkZone: document.getElementById("inkZone"),
+    circle: document.getElementById("progressCircle")
   };
-
-  es.onerror = () => {
-    liveStEl.textContent = '重连中…';
-    es.close();
-    esRef = null;
-    reconnectTimer = setTimeout(connect, 2000);
-  };
-}
-
-/* ─── 粒子（祥云散粒，GPU 友好，极淡） ─── */
-(function initParticles() {
-  const canvas = $('particles');
-  const ctx = canvas.getContext('2d');
-  let W, H;
-  const PARTICLES = 55;
-  const pts = [];
-
-  function resize() {
-    W = canvas.width  = window.innerWidth;
-    H = canvas.height = window.innerHeight;
+  const C = 2 * Math.PI * 175;
+  document.documentElement.style.setProperty("--ring", C.toFixed(2));
+  // 扫码签到二维码：编码"当前域名 + 活动ID"的用户入场链接（服务端按请求域名生成）
+  if (eventId) {
+    const qi = document.getElementById("qrImg");
+    if (qi) qi.src = "/api/v1/p/e/" + encodeURIComponent(eventId) + "/qr";
   }
-  resize();
-  window.addEventListener('resize', resize);
+  let expected = 0, target = 0, shown = 0, raf = 0, es = null, retry = 0, dead = false;
 
-  // 初始化粒子
-  for (let i = 0; i < PARTICLES; i++) {
-    pts.push({
-      x:  Math.random() * 1.0,
-      y:  Math.random() * 1.0,
-      r:  1.5 + Math.random() * 2.5,
-      vx: (Math.random() - .5) * 0.00015,
-      vy: -0.00005 - Math.random() * 0.00010,
-      a:  Math.random() * Math.PI * 2,
-      gold: Math.random() > .6,
-    });
+  function format(n){ return Math.max(0, n | 0).toLocaleString("zh-CN"); }
+  function progressValue(count){
+    if (!expected) return 0;
+    return Math.min(count / ((expected * 0.9) || 1), 1);
   }
-
-  function drawFrame() {
-    ctx.clearRect(0, 0, W, H);
-    for (const p of pts) {
-      p.x = (p.x + p.vx + 1) % 1;
-      p.y = (p.y + p.vy + 1) % 1;
-      const px = p.x * W, py = p.y * H;
-      ctx.beginPath();
-      ctx.arc(px, py, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = p.gold
-        ? 'rgba(200,144,42,.28)'
-        : 'rgba(192,57,43,.22)';
-      ctx.fill();
+  function paintProgress(){
+    const p = progressValue(target);
+    document.documentElement.style.setProperty("--ringLen", (C * p).toFixed(2));
+    els.percent.textContent = Math.round(p * 100) + "%";
+  }
+  function ripple(){
+    const n = document.createElement("div");
+    n.className = "ink";
+    const dx = (Math.random() - .5) * 160;
+    const dy = (Math.random() - .5) * 90;
+    n.style.left = "calc(50% + " + dx.toFixed(0) + "px)";
+    n.style.top = "calc(50% + " + dy.toFixed(0) + "px)";
+    els.inkZone.appendChild(n);
+    n.addEventListener("animationend", () => n.remove(), { once:true });
+  }
+  function tick(){
+    const d = target - shown;
+    if (Math.abs(d) < .35) {
+      shown = target;
+    } else {
+      shown += d * .14;
+      if (Math.abs(d) < 4) shown += Math.sign(d) * .18;
     }
-    requestAnimationFrame(drawFrame);
+    els.count.textContent = format(Math.round(shown));
+    if (shown !== target) raf = requestAnimationFrame(tick);
+    else raf = 0;
   }
-  drawFrame();
+  function animateTo(next){
+    target = Math.max(0, Number(next) || 0);
+    paintProgress();
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+  function applyCount(next){
+    const prev = target;
+    animateTo(next);
+    if (next > prev) ripple();
+  }
+  async function loadInfo(){
+    const res = await fetch("/api/v1/p/e/" + encodeURIComponent(eventId) + "/info", { cache:"no-store" });
+    if (!res.ok) throw new Error("info");
+    const data = await res.json();
+    els.name.textContent = data && data.name ? data.name : "寻道大千周年庆";
+    expected = Math.max(0, Number(data && data.expected_count) || 0);
+    els.expected.textContent = format(expected);
+    paintProgress();
+  }
+  function connect(){
+    if (dead || !eventId) return;
+    es = new EventSource("/api/v1/p/e/" + encodeURIComponent(eventId) + "/stream");
+    es.onmessage = (ev) => {
+      let data;
+      try { data = JSON.parse(ev.data); } catch (_) { return; }
+      applyCount(Number(data && data.count) || 0);
+    };
+    es.onerror = () => {
+      if (es) es.close();
+      es = null;
+      if (dead) return;
+      clearTimeout(retry);
+      retry = setTimeout(connect, 2000);
+    };
+  }
+  function shutdown(){
+    dead = true;
+    if (raf) cancelAnimationFrame(raf);
+    clearTimeout(retry);
+    if (es) es.close();
+  }
+  window.addEventListener("beforeunload", shutdown, { once:true });
+  paintProgress();
+  loadInfo().catch(() => {
+    els.name.textContent = "寻道大千周年庆";
+    els.expected.textContent = "0";
+    paintProgress();
+  }).finally(connect);
 })();
-
-/* ─── 启动 ─── */
-loadInfo().then(connect);
 </script>
 </body>
 </html>

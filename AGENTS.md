@@ -58,3 +58,12 @@ go test ./...  # 单测
 - 不让 organizer 与 admin 共用鉴权域（物理分表分域）。
 - 不在 Redis 上堆持久队列语义（持久异步用 NATS JetStream）。
 - 不提交密钥/构建产物/.env。
+
+
+<claude-mem-context>
+# Memory Context
+
+# [captain] recent context, 2026-05-17 12:09am GMT+8
+
+No previous sessions found.
+</claude-mem-context>

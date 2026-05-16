@@ -19,6 +19,7 @@ import (
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/token"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/skip2/go-qrcode"
 )
 
 type Handler struct {
@@ -323,8 +324,48 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, h.RT.Snapshot(r.Context(), r.PathValue("event_id")))
 }
 
+// QR: GET /api/v1/p/e/{event_id}/qr — PNG QR of the participant entry URL
+// (scheme/host derived from the request so it matches the public domain;
+// REQ-CHANGE: big screen / organizer shows a scannable check-in QR).
+func (h *Handler) QR(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("event_id")
+	ev, err := h.Repo.Event(r.Context(), eventID)
+	if err != nil {
+		httpx.Fail(w, http.StatusNotFound, "event_not_found", "event not found")
+		return
+	}
+	et, err := h.Sig.Sign(token.Claims{
+		Kind: token.KindEvent, EventID: ev.ID,
+		NotBefore: time.Now().Add(-time.Hour).Unix(),
+		ExpiresAt: ev.EndAt.Add(24 * time.Hour).Unix(),
+	})
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "internal", "sign failed")
+		return
+	}
+	scheme := "http"
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = p
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	link := scheme + "://" + host + "/m/" + ev.ID + "?et=" + et
+	png, err := qrcode.Encode(link, qrcode.Medium, 512)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "qr", "qr failed")
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(png)
+}
+
 // Info: GET /api/v1/p/e/{event_id}/info — public event meta for the big
-// screen (name + expected_count drive the heart brightness target).
+// screen (name + expected_count drive the progress target).
 func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
 	ev, err := h.Repo.Event(r.Context(), r.PathValue("event_id"))
 	if err != nil {

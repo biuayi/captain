@@ -13,10 +13,12 @@ import (
 	"github.com/hertz/captain/internal/export"
 	"github.com/hertz/captain/internal/httpx"
 	"github.com/hertz/captain/internal/identity"
+	"github.com/hertz/captain/internal/loginguard"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/storage"
 	"github.com/hertz/captain/internal/token"
+	"github.com/hertz/captain/internal/turnstile"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -27,26 +29,43 @@ type Handler struct {
 	Export  *export.Worker
 	Store   storage.Storage
 	BaseURL string
+	Guard   *loginguard.Guard
+	TS      *turnstile.Verifier
 }
 
 type loginReq struct {
 	LoginName string `json:"login_name"`
 	Password  string `json:"password"`
+	Turnstile string `json:"turnstile_token"`
 }
 
-// Login: POST /api/v1/org/login — authorized organizers only (REQUIREMENTS §4.2).
+// Login: POST /api/v1/org/login — authorized organizers only.
+// Constant 3s delay + 10-fail/10min lockout + optional Turnstile (REQ-CHANGE-003).
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginReq
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.Fail(w, http.StatusBadRequest, "bad_request", "invalid body")
 		return
 	}
-	c, err := h.Repo.OrganizerByLogin(r.Context(), req.LoginName)
+	ctx := r.Context()
+	loginguard.Wait(ctx) // 恒定 ~3s，无论结果
+	const scope = "organizer"
+	if h.Guard.Locked(ctx, scope, req.LoginName) {
+		httpx.Fail(w, http.StatusLocked, "account_locked", "账号已锁定，请稍后再试")
+		return
+	}
+	if !h.TS.Verify(ctx, req.Turnstile, httpx.ClientIP(r)) {
+		httpx.Fail(w, http.StatusForbidden, "captcha_failed", "人机验证未通过")
+		return
+	}
+	c, err := h.Repo.OrganizerByLogin(ctx, req.LoginName)
 	if err != nil || c.Status != "active" ||
 		bcrypt.CompareHashAndPassword([]byte(c.PasswordHash), []byte(req.Password)) != nil {
+		h.Guard.RecordFailure(ctx, scope, req.LoginName)
 		httpx.Fail(w, http.StatusUnauthorized, "bad_credentials", "登录失败")
 		return
 	}
+	h.Guard.Reset(ctx, scope, req.LoginName)
 	tok, _ := h.Sig.Sign(token.Claims{
 		Kind: token.KindAuth, Role: "organizer", Subject: c.ID,
 		ExpiresAt: time.Now().Add(12 * time.Hour).Unix(),
