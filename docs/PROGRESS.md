@@ -17,7 +17,9 @@
 |---|---|
 | 后端 captain | **M1/M2 核心 + REQ-CHANGE-001 完成并验证**（build/test/30k压测/身份矩阵全绿，已推 GitHub `c088026`） |
 | 前端 check-in-kiosk | **monorepo 三端已实现并构建验证**（shared+mobile+big-screen+admin，typecheck净/vite build全绿，已推 `16e6f67`）；**浏览器端到端联调未做**(T-031~034 REVIEW) |
-| 正式 URL | **被基础设施阻塞**：需用户提供服务器/域名，或授权隧道(cloudflared/ngrok)，或授权云部署。见 §B-URL |
+| 正式 URL | **硬化已完成（可安全暴露）**；仅差 cloudflared 二进制：用户装/放行后我一条命令出公网 URL。见 §B-URL |
+| 安全硬化 | ✅ 强密钥/强口令/管理URL混淆(T-083) 完成验证（→HISTORY） |
+| 大屏 | ✅ 改版：广东省游心公益基金会 + 爱心跳动/亮度进度（logo 待活动方提供 /assets/youxin-logo.png） |
 | 活跃 Agent | `Claude(Opus4.7)@check-in-kiosk-session`（后端+协调）；协作 Agent 见 CODEX-REVIEW-001 泳道 |
 
 ## 2. 里程碑
@@ -53,8 +55,10 @@
 
 ## 4. 阻塞 / 变更日志（最新在上）
 
-**B-URL（OPEN，需用户决策）**：公网"正式URL"需基础设施，AI 无法自行采购/外联。等用户选：①提供服务器+域名 ②授权隧道 ③授权云部署 ④暂 LAN/localhost。
+**B-URL（OPEN，仅差 cloudflared 二进制）**：硬化已完成，可安全暴露。安全层一致拦截 AI 自行下载/运行 cloudflared 与自改 settings。用户二选一：① `apt/brew install cloudflared`（或下 github.com/cloudflare/cloudflared release 到 /usr/local/bin）② settings.allow 加 `Bash(cloudflared:*)`。之后 AI 一条 `cloudflared tunnel --url http://localhost:8080` 出公网 https。
+**B-LOGO（OPEN，需用户提供）**：广东省游心公益基金会 logo——放 `captain/internal/webui/assets/youxin-logo.png`（或给 URL），现优雅降级为文字署名。
 
+- `2026-05-17 | Claude@check-in-kiosk-session | 硬化+大屏 | T-083强口令/密钥/管理URL混淆完成验证(→HISTORY)；大屏改版游心公益基金会+爱心跳动/亮度进度+/info；captain 10fd961 / kiosk c16ddca。待用户：cloudflared 二进制(B-URL)、游心logo(B-LOGO)`
 - `2026-05-16 | Claude@check-in-kiosk-session | 前端 | monorepo 三端+shared 实现并构建验证(typecheck净/vite build全绿)，push 16e6f67；T-011/030→HISTORY，T-031~034 REVIEW(待浏览器e2e)；隧道仍待用户放行+先硬化`
 - `2026-05-16 | Claude@check-in-kiosk-session | 流程重构 | 引入 HISTORY.md，PROGRESS 瘦身为仅活跃；REQ-CHANGE-002 记档(位置/凭据非明文/字段+URL混淆)；M1~M4 据实校准（前端未开工，后端+REQ-CHANGE-001 完成）`
 - `2026-05-16 | Claude@check-in-kiosk-session | REQ-CHANGE-001 | T-071/072 完成并容器验证，commit c088026；B-3 → resolved-in-code（文档并入 REQUIREMENTS/ARCHITECTURE 仍待 Agent-B T-074）`

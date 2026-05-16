@@ -32,3 +32,8 @@
 - **T-030** `@kiosk/shared`：契约类型(对齐 captain + REQ-CHANGE-001)、fetch API client（参与/活动方/超管全接口）、被动浏览器指纹采集（服务端重算）、deviceId/格式化。
 - 验证：`npm install`(71包) OK；`npm run typecheck` 干净；mobile/big-screen/admin `vite build` 全绿(dist 产出)。commit `16e6f67`。
 - 说明：T-031/032/033/034 三端 UI 已实现并构建通过，但**浏览器端到端联调未做**（需前端跑起来连后端栈），状态 REVIEW，见 PROGRESS。
+
+## 安全硬化 + 大屏改版（DONE，captain `10fd961` / kiosk `c16ddca`）
+
+- **T-083 / 凭据硬化（REQ-CHANGE-002）**：强随机 `CAPTAIN_TOKEN_SECRET`/`IDENTITY_PEPPER` + 强种子口令（`deploy/.env` gitignored，`make` 自动 openssl 生成）；管理后台路径混淆 `CAPTAIN_ADMIN_PATH`——`/admin` 与 `/api/v1/admin` 不再注册→404，控制台/admin API 走 env slug，webui 注入混淆基址。容器验证：`/admin`→404、`/api/v1/admin/login`→404、`/mgmt-xxxx`→200、无默认密钥告警。**公网暴露前置硬化完成**。
+- **大屏改版（活动方反馈）**：弃红十字/数值爱心值 → 广东省游心公益基金会 + 一颗爱心；每签到（SSE 计数增长）爱心跳动一下；亮度=进度=`count/(预计×90%)`，90% 预计人数最亮；新增公开 `GET /api/v1/p/e/{id}/info`。embedded screen.html + React big-screen 同步。logo 待活动方提供。
