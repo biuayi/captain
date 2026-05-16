@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>寻道大千 · 周年庆典</title>
+<style>
+  :root{--ink:#1a1a1a;--paper:#f5f0e6;--cinnabar:#c0392b;--bamboo:#4a7c59;--gold:#c9a227}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Songti SC","STSong",serif;background:
+     radial-gradient(circle at 50% 0,#2a2a2a,#101010 70%);color:var(--paper);
+     min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px}
+  .scroll{max-width:480px;width:100%;background:linear-gradient(180deg,#f5f0e6,#e8dfc8);
+     color:var(--ink);border-radius:14px;padding:28px 22px;margin-top:8px;
+     box-shadow:0 0 0 1px var(--gold),0 18px 50px rgba(0,0,0,.6);position:relative}
+  .seal{position:absolute;top:14px;right:14px;width:46px;height:46px;border-radius:8px;
+     background:var(--cinnabar);color:#fff;display:flex;align-items:center;justify-content:center;
+     font-size:13px;line-height:1.1;text-align:center;transform:rotate(6deg)}
+  h1{font-size:22px;letter-spacing:3px;color:var(--cinnabar);margin-bottom:4px}
+  .sub{font-size:13px;color:#6b5b3e;margin-bottom:20px;line-height:1.7}
+  .step-title{font-size:18px;color:var(--bamboo);border-left:4px solid var(--gold);
+     padding-left:10px;margin:18px 0 12px}
+  p.body{font-size:14px;line-height:1.9;color:#3a3226;margin:10px 0}
+  label{display:block;font-size:13px;color:#5b4a2e;margin:14px 0 6px}
+  input{width:100%;padding:11px;border:1px solid #b8a878;border-radius:8px;
+     background:#fffdf5;font-size:15px}
+  button{width:100%;margin-top:22px;padding:14px;border:0;border-radius:10px;
+     background:linear-gradient(180deg,var(--cinnabar),#9c2b20);color:#fff;
+     font-size:17px;letter-spacing:4px;font-family:inherit;cursor:pointer}
+  .opt{display:block;width:100%;text-align:left;margin:10px 0;padding:13px 14px;
+     background:#fffdf5;border:1px solid #b8a878;border-radius:9px;font-size:15px;
+     color:var(--ink);cursor:pointer}
+  .opt:active{background:#efe6cf}
+  .code{font-size:22px;letter-spacing:3px;color:var(--cinnabar);text-align:center;
+     background:#fffdf5;border:1px dashed var(--cinnabar);padding:14px;border-radius:8px;margin:14px 0}
+  .toast{margin-top:14px;font-size:13px;color:var(--bamboo);text-align:center}
+  .err{color:var(--cinnabar)}
+  .foot{margin-top:26px;font-size:11px;color:#9a8a66;text-align:center}
+</style>
+</head>
+<body>
+<div class="scroll">
+  <div class="seal">寻道<br>大千</div>
+  <h1>寻道大千</h1>
+  <div class="sub" id="sub">周年庆典 · 恭迎道友归山</div>
+  <div id="app">正在叩问山门…</div>
+  <div class="toast" id="toast"></div>
+  <div class="foot">水墨国风 · 丑萌小妖 · 仙途大千　|　demo by captain</div>
+</div>
+<script>
+const path = location.pathname.split("/").filter(Boolean); // ["m","{id}"]
+const eventId = path[1];
+const et = new URLSearchParams(location.search).get("et") || "";
+const app = document.getElementById("app");
+const toast = document.getElementById("toast");
+let deviceId = localStorage.getItem("cap_device");
+if(!deviceId){ deviceId = (crypto.randomUUID&&crypto.randomUUID())||("d"+Date.now()+Math.random());
+  localStorage.setItem("cap_device", deviceId); }
+let flow=null, idx=0, steps=[];
+
+function say(m,err){ toast.textContent=m; toast.className="toast"+(err?" err":""); }
+
+async function api(url,opts){ opts=opts||{}; opts.credentials="include";
+  const r=await fetch(url,opts); const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.message||("HTTP "+r.status)); return j; }
+
+async function boot(){
+  try{
+    const j=await api(`/api/v1/p/e/${eventId}?et=${encodeURIComponent(et)}&d=${encodeURIComponent(deviceId)}`);
+    flow=j.flow; steps=flow.steps;
+    const s1=steps.find(s=>s.id===flow.entryStepId);
+    document.getElementById("sub").textContent=(s1&&s1.config&&s1.config.subtitle)||"周年庆典 · 恭迎道友归山";
+    idx=steps.findIndex(s=>s.id===flow.entryStepId);
+    render();
+  }catch(e){ app.innerHTML='<p class="body err">无法进入活动：'+e.message+'</p>'; }
+}
+
+function next(){ const cur=steps[idx]; const nx=cur.nextStepId;
+  if(!nx){ app.innerHTML+='<p class="toast">— 道途圆满 —</p>'; return; }
+  idx=steps.findIndex(s=>s.id===nx); render(); }
+
+async function submit(payload){
+  const cur=steps[idx];
+  try{
+    const j=await api(`/api/v1/p/e/${eventId}/steps/${cur.id}/submit`,
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload||{})});
+    if(cur.type==="game"){ say(j.correct?"答对了，道心通明 ✦":"未中，然道在心中 ✦"); }
+    else if(cur.type==="checkin"){ say("签到成功，大屏已记你一笔 ✦"); }
+    setTimeout(next,700);
+  }catch(e){ say(e.message,true); }
+}
+
+function render(){
+  const s=steps[idx]; const c=s.config||{}; say("");
+  let h=`<div class="step-title">${s.title||""}</div>`;
+  if(s.type==="checkin"){
+    h+=`<p class="body">${c.subtitle||"结缘签到，踏入大千。"}</p>`;
+    h+=`<button id="go">${c.buttonText||"签到"}</button>`;
+    app.innerHTML=h; document.getElementById("go").onclick=()=>submit({});
+  }else if(s.type==="form"){
+    (c.fields||[]).forEach(f=>{ h+=`<label>${f.label}${f.required?" *":""}</label>
+      <input id="f_${f.id}" placeholder="${f.placeholder||""}">`; });
+    h+=`<button id="go">提交名册</button>`; app.innerHTML=h;
+    document.getElementById("go").onclick=()=>{ const fields={};
+      (c.fields||[]).forEach(f=>fields[f.id]=document.getElementById("f_"+f.id).value);
+      submit({fields}); };
+  }else if(s.type==="game"){
+    h+=`<p class="body">${c.question||""}</p>`;
+    (c.options||[]).forEach((o,i)=>{ h+=`<button class="opt" data-i="${i}">${o}</button>`; });
+    app.innerHTML=h;
+    [...document.querySelectorAll(".opt")].forEach(b=>b.onclick=()=>submit({answer:+b.dataset.i}));
+  }else if(s.type==="charity"){
+    h+=`<p class="body">${c.body||""}</p><button id="go">${c.ctaText||"我愿同行"}</button>`;
+    app.innerHTML=h; document.getElementById("go").onclick=()=>submit({pledge:true});
+  }else if(s.type==="reward"){
+    h+=`<p class="body">${c.body||""}</p>`;
+    if(c.redeemCode) h+=`<div class="code">${c.redeemCode}</div>`;
+    if(c.redeemNote) h+=`<p class="body">${c.redeemNote}</p>`;
+    h+=`<button id="go">领取礼遇</button>`; app.innerHTML=h;
+    document.getElementById("go").onclick=()=>submit({});
+  }else{
+    h+=`<p class="body">${c.successTitle||"礼成"}</p>`; app.innerHTML=h;
+    submit({});
+  }
+}
+boot();
+</script>
+</body>
+</html>

@@ -23,11 +23,14 @@
 
 | 项 | 值 |
 |---|---|
-| 当前阶段 | **M0 完成 → M1/M2 通宵自主构建** |
+| 当前阶段 | **M1/M2 后端垂直切片实现完成（build/test 绿），运行时冒烟受网络阻塞** |
 | 活跃 Agent | `Claude(Opus4.7)@check-in-kiosk-session` |
-| 正在执行 | captain 后端垂直切片实现（寻道大千周年庆 demo），明早可见效果 |
-| 下一里程碑 | 后端切片跑通 → codex review → 推送 GitHub |
+| 正在执行 | captain 脚手架已落地编译通过；交 codex review；待用户解阻 |
+| 下一里程碑 | 解阻（docker.io / push 审批）→ 容器冒烟 → 前端三端 |
 | 最后更新 | 2026-05-16 by `Claude(Opus4.7)@check-in-kiosk-session` |
+
+**已验证**：`go build ./...` ✅、`go vet` ✅、`gofmt` ✅、`go test ./...` ✅（token 签验/过期/篡改、flow schema 校验、寻道大千种子流程合法）。
+**未验证（被阻塞，非代码问题）**：容器端到端冒烟——本环境 docker.io 不可达，postgres/nats 镜像拉不下来。
 
 ---
 
@@ -78,7 +81,12 @@
 - **T-060 《寻道大千》周年庆首版需求落地**
   - 需求：记录活动方首版需求，扩展流程引擎 step（+charity/+reward），种子主题 demo 活动。
   - 验收：REQUIREMENTS §11 记录；ARCHITECTURE §4 step 扩为 6 种；后端种子「寻道大千·周年庆典」活动（签到→主题答题→公益→公布奖励）；多人实时/步数打卡列为 v1.x 推迟项。
-  - 负责：`Claude(Opus4.7)@check-in-kiosk-session` · 状态：**DOING** · 进度：30%（文档已落，待后端实现）
+  - 负责：`Claude(Opus4.7)@check-in-kiosk-session` · 状态：**DOING** · 进度：85%（文档+后端实现完成且 build/test 绿；剩容器冒烟受 B-2 阻塞 + 前端三端）
+
+- **T-061 captain 后端垂直切片实现**
+  - 需求：扫码→device-session→签到(幂等)→Redis计数+SSE推大屏→后台查看/导出→CSV下载；含活动方/超管登录、6类step流程引擎、NATS异步导出、10s对账、寻道大千主题种子+水墨demo页。
+  - 验收：`go build/vet/test/gofmt` 全绿（已达成）；`make up && make smoke` 端到端通过（受 B-2 阻塞，待解阻验证）。
+  - 负责：`Claude(Opus4.7)@check-in-kiosk-session` · 状态：**REVIEW** · 进度：90%（代码完成验证绿，待容器冒烟+codex review）
 
 ### M1 — 脚手架
 
@@ -184,9 +192,10 @@
 
 ## 4. 受阻 / 风险（Blockers & Risks）
 
-| 项 | 描述 | 影响任务 | 状态 |
-|---|---|---|---|
-| — | 暂无 | — | — |
+| 项 | 描述 | 影响任务 | 状态 | 需用户/他方操作 |
+|---|---|---|---|---|
+| B-1 git push 被拒 | Bash 安全分类器拒绝 `git push`（判定向不可信远程推送专有源码=数据外泄），尽管 `origin` 原本就是 `biuayi/{captain,check-in-kiosk}`（仅 HTTPS→SSH）。本地 commit 正常。 | 强制 push 规则 | OPEN | 用户在 settings 加 Bash 允许规则放行 `git push`，或显式批准 |
+| B-2 docker.io 不可达 | 本环境拉取 postgres/nats 镜像 `i/o timeout`，无法 `docker compose up` 跑运行时冒烟（redis 镜像已缓存）。代码本身 build/test 绿。 | 容器冒烟、明早可视化 demo | OPEN | 在可访问 docker.io 的环境/配镜像加速后 `make up && make smoke` |
 
 ---
 
@@ -196,6 +205,9 @@
 
 - `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | T-001 | 两仓库写入 REQUIREMENTS.md，DONE`
 - `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | T-002 | 建立本协作看板（两仓库），进行中`
+- `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | T-061 | captain 后端垂直切片实现完成：build/vet/gofmt/test 全绿；提交 build-green 脚手架（本地，push 待审批 B-1）`
+- `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | B-2 | docker.io 不可达，容器冒烟受阻；改以单元测试验证核心逻辑`
+- `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | B-1 | git push 被安全分类器拒绝，转为本地提交，待用户放行`
 - `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | RULES | 强制规则上线：每阶段性完成必须 commit+push；新增 CODING_STANDARDS.md；GIT_CONVENTION §0`
 - `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | T-060 | 寻道大千周年庆首版需求落地 REQUIREMENTS §11 / ARCHITECTURE §4（step 扩 6 种）`
 - `2026-05-16 | Claude(Opus4.7)@check-in-kiosk-session | T-003 | codex 3 轮头脑风暴完成，终审无异议；T-004 架构文档 DONE`

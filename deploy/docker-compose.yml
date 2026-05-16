@@ -1,0 +1,57 @@
+# 本地一键拉起：postgres + redis + nats(JetStream) + captain
+# 用法：make up   （等价 docker compose -f deploy/docker-compose.yml up --build）
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: captain
+      POSTGRES_PASSWORD: captain
+      POSTGRES_DB: captain
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U captain"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data"]
+    ports: ["4222:4222"]
+    volumes: ["natsdata:/data"]
+
+  captain:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      CAPTAIN_HTTP_ADDR: ":8080"
+      CAPTAIN_PUBLIC_BASE_URL: "http://localhost:8080"
+      CAPTAIN_PG_DSN: "postgres://captain:captain@postgres:5432/captain?sslmode=disable"
+      CAPTAIN_REDIS_ADDR: "redis:6379"
+      CAPTAIN_NATS_URL: "nats://nats:4222"
+      CAPTAIN_TOKEN_SECRET: "dev-only-insecure-secret-change-me"
+      CAPTAIN_STORAGE_DRIVER: "local"
+      CAPTAIN_STORAGE_DIR: "/data"
+      CAPTAIN_SEED: "true"
+    ports: ["8080:8080"]
+    volumes: ["capdata:/data"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      nats: { condition: service_started }
+
+volumes:
+  pgdata:
+  natsdata:
+  capdata:

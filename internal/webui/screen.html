@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>寻道大千 · 周年庆典 · 大屏</title>
+<style>
+  :root{--paper:#f5f0e6;--cinnabar:#c0392b;--gold:#c9a227;--bamboo:#4a7c59}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{font-family:"Songti SC","STSong",serif;color:var(--paper);overflow:hidden;
+    background:radial-gradient(circle at 50% 18%,#3a3a3a,#0c0c0c 70%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .brand{font-size:clamp(28px,5vw,64px);letter-spacing:14px;color:var(--cinnabar);
+    text-shadow:0 0 24px rgba(192,57,43,.5)}
+  .tag{margin-top:10px;font-size:clamp(14px,1.8vw,22px);color:#bfae84;letter-spacing:8px}
+  .count{font-size:clamp(90px,22vw,260px);font-weight:700;color:var(--gold);
+    line-height:1.05;margin:4vh 0;text-shadow:0 0 40px rgba(201,162,39,.45);
+    font-variant-numeric:tabular-nums;transition:transform .25s}
+  .count.bump{transform:scale(1.08)}
+  .label{font-size:clamp(16px,2.4vw,30px);letter-spacing:12px;color:var(--bamboo)}
+  .live{position:fixed;top:26px;right:34px;font-size:14px;color:#8fb89a;letter-spacing:3px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#4a7c59;
+    margin-right:8px;box-shadow:0 0 10px #4a7c59;animation:b 1.4s infinite}
+  @keyframes b{50%{opacity:.25}}
+  .foot{position:fixed;bottom:22px;font-size:12px;color:#6a5f44;letter-spacing:4px}
+</style>
+</head>
+<body>
+  <div class="live"><span class="dot"></span><span id="st">连接中…</span></div>
+  <div class="brand">寻道大千</div>
+  <div class="tag">周 年 庆 典</div>
+  <div class="count" id="c">—</div>
+  <div class="label">已 结 缘 道 友</div>
+  <div class="foot">水墨国风 · 仙途大千 · 实时签到大屏</div>
+<script>
+const eventId = location.pathname.split("/").filter(Boolean)[1];
+const cEl=document.getElementById("c"), stEl=document.getElementById("st");
+function show(n){ const cur=cEl.textContent.replace(/\D/g,"");
+  cEl.textContent=n; if(String(n)!==cur){ cEl.classList.add("bump");
+    setTimeout(()=>cEl.classList.remove("bump"),250); } }
+function connect(){
+  const es=new EventSource(`/api/v1/p/e/${eventId}/stream`);
+  es.onopen=()=>stEl.textContent="实时连接";
+  es.onmessage=e=>{ try{ const s=JSON.parse(e.data); show(s.count); }catch(_){} };
+  es.onerror=()=>{ stEl.textContent="重连中…"; es.close(); setTimeout(connect,2000); };
+}
+connect();
+</script>
+</body>
+</html>
