@@ -88,3 +88,25 @@
 - A4：IP 取请求来源（经可信代理头）；位置依赖前端 geolocation 授权，拒授权时位置留空、
   不阻断签到（沿用 REQ-CHANGE-002）。
 - A5：后台指纹/IP 等 PII 展示仅授权后台可见；导出含 PII 需留审计（沿用 ARCHITECTURE §10）。
+
+## 5. 增量需求（2026-05-17 ~00:56 用户追加）：签到序号对用户可见
+
+> 原文：「另外，用户签到功能，用户应该可以知道自己是第几个签到的」
+
+### v1 决策
+- 签到成功时，返回并向用户展示其**签到序号**（"你是第 N 位签到"）。
+- N 的来源：首次成功 checkin 时 `INCR count:{event_id}:checkin` 的返回值即该用户序号
+  （去重计数与序号同源，天然 1,2,3…）。
+- **持久化稳定**：首次 checkin 把该序号写入 `participation.checkin_seq int`
+  （或 `event_whitelist_entry.checkin_seq`），**一次分配、永不变**。
+- 再次进入（已 claimed 直跳最终页，见 §1.3）→ 展示**同一个**原始序号，不重新分配、不增计数。
+- 与 §A 黄金契约对齐：checkin 成功响应增字段 `checkinSeq:int`（首次与重入都返回）；
+  对账纠偏（每10s PG↔Redis）只校正实时总数，**不回改已分配的 `checkin_seq`**。
+- 边界：并发签到序号由 Redis INCR 原子保证不重号；PG 唯一约束兜底；
+  若 Redis 不健康降级 PG-only，则用 PG 序列/`COUNT(+1)` 事务内分配，保证唯一单调。
+
+### 实现方动作（并入 §3 清单）
+- 迁移 0004 增 `participation.checkin_seq int`（与 §3-1 同一张迁移）。
+- 参与 checkin 成功路径：捕获 INCR 返回 → 持久化 → 响应 `checkinSeq`。
+- 前端 mobile：签到成功页/重入最终页显示"你是第 N 位签到"。
+- 后台/导出列可加"签到序号"（接 §1.4）。
