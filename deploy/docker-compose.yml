@@ -36,11 +36,16 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       CAPTAIN_HTTP_ADDR: ":8080"
-      CAPTAIN_PUBLIC_BASE_URL: "http://localhost:8080"
+      CAPTAIN_PUBLIC_BASE_URL: "${CAPTAIN_PUBLIC_BASE_URL:-http://localhost:8080}"
       CAPTAIN_PG_DSN: "postgres://captain:captain@postgres:5432/captain?sslmode=disable"
       CAPTAIN_REDIS_ADDR: "redis:6379"
       CAPTAIN_NATS_URL: "nats://nats:4222"
-      CAPTAIN_TOKEN_SECRET: "dev-only-insecure-secret-change-me"
+      # 安全敏感项：经 deploy/.env 注入强随机值（gitignored）；缺省回落 dev 默认
+      CAPTAIN_TOKEN_SECRET: "${CAPTAIN_TOKEN_SECRET:-dev-only-insecure-secret-change-me}"
+      CAPTAIN_IDENTITY_PEPPER: "${CAPTAIN_IDENTITY_PEPPER:-dev-only-insecure-pepper-change-me}"
+      CAPTAIN_ADMIN_PATH: "${CAPTAIN_ADMIN_PATH:-admin}"
+      CAPTAIN_SEED_ADMIN_PW: "${CAPTAIN_SEED_ADMIN_PW:-admin123}"
+      CAPTAIN_SEED_ORG_PW: "${CAPTAIN_SEED_ORG_PW:-xundao123}"
       CAPTAIN_STORAGE_DRIVER: "local"
       CAPTAIN_STORAGE_DIR: "/data"
       CAPTAIN_SEED: "true"

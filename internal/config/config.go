@@ -14,6 +14,9 @@ type Config struct {
 	NATSURL        string
 	TokenSecret    string
 	IdentityPepper string
+	AdminPath      string // 管理后台路径混淆（T-083），默认 "admin"
+	SeedAdminPw    string
+	SeedOrgPw      string
 	StorageDriver  string
 	StorageDir     string
 	Seed           bool
@@ -48,6 +51,9 @@ func Load() Config {
 		NATSURL:        env("CAPTAIN_NATS_URL", "nats://localhost:4222"),
 		TokenSecret:    env("CAPTAIN_TOKEN_SECRET", "dev-only-insecure-secret-change-me"),
 		IdentityPepper: env("CAPTAIN_IDENTITY_PEPPER", "dev-only-insecure-pepper-change-me"),
+		AdminPath:      env("CAPTAIN_ADMIN_PATH", "admin"),
+		SeedAdminPw:    env("CAPTAIN_SEED_ADMIN_PW", "admin123"),
+		SeedOrgPw:      env("CAPTAIN_SEED_ORG_PW", "xundao123"),
 		StorageDriver:  env("CAPTAIN_STORAGE_DRIVER", "local"),
 		StorageDir:     env("CAPTAIN_STORAGE_DIR", "/data"),
 		Seed:           envBool("CAPTAIN_SEED", true),

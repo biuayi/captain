@@ -47,7 +47,7 @@ const xundaoFlow = `{
 }`
 
 // Run seeds demo data and logs the participant entry URL + event_token.
-func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL string) error {
+func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL, adminPwPlain, orgPwPlain string) error {
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM organizer`).Scan(&n); err != nil {
 		return err
@@ -56,14 +56,14 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL str
 		return logExistingEvent(ctx, pool, sig, baseURL)
 	}
 
-	adminPw, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+	adminPw, _ := bcrypt.GenerateFromPassword([]byte(adminPwPlain), bcrypt.DefaultCost)
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO admin_user (login_name, password_hash) VALUES ('admin',$1)`,
 		string(adminPw)); err != nil {
 		return err
 	}
 
-	orgPw, _ := bcrypt.GenerateFromPassword([]byte("xundao123"), bcrypt.DefaultCost)
+	orgPw, _ := bcrypt.GenerateFromPassword([]byte(orgPwPlain), bcrypt.DefaultCost)
 	var orgID string
 	if err := pool.QueryRow(ctx,
 		`INSERT INTO organizer (name, login_name, password_hash)
@@ -96,7 +96,8 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL str
 	// staff-identity path testable out of the box; external stays open.
 	seedWhitelist(ctx, pool, eventID, orgID)
 
-	log.Printf("seed: demo data created (admin/admin123, xundao/xundao123); 白名单样例 E1001/E1002/E1003")
+	log.Printf("seed: demo data created — admin/%s  xundao/%s  (白名单 E1001/E1002/E1003)",
+		adminPwPlain, orgPwPlain)
 	return logEvent(sig, baseURL, eventID, end)
 }
 

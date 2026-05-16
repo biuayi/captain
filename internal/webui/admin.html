@@ -77,6 +77,7 @@
   </div>
 
 <script>
+const AB="__ADMIN_BASE__"; // 后端注入的混淆管理 API 基址（T-083）
 let oTok="", aTok="";
 function show(w){ for(const k of ["org","admin"]){
   document.getElementById(k).classList.toggle("on",k===w);
@@ -138,13 +139,13 @@ async function downloadCSV(job){
 
 /* ---- 超管 ---- */
 async function adminLogin(){
-  try{ const j=await api("/api/v1/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},
+  try{ const j=await api(`${AB}/login`,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({login_name:aUser.value,password:aPass.value})});
     aTok=j.token; document.getElementById("aWho").textContent=" ✓ 超管"; loadOrgs();
   }catch(e){ document.getElementById("aWho").innerHTML=' <span class="err">'+esc(e.message)+'</span>'; }
 }
 async function loadOrgs(){
-  const j=await api("/api/v1/admin/organizers",{headers:{Authorization:"Bearer "+aTok}});
+  const j=await api(`${AB}/organizers`,{headers:{Authorization:"Bearer "+aTok}});
   const os=j.organizers||[];
   document.getElementById("aList").innerHTML='<table><tr><th>名称</th><th>登录名</th><th>状态</th><th>操作</th></tr>'+
     os.map(o=>`<tr><td>${esc(o.Name||o.name)}</td><td>${esc(o.LoginName||o.login_name)}</td>
@@ -153,7 +154,7 @@ async function loadOrgs(){
           <button class="act cin" onclick="setStatus('${o.ID||o.id}','disabled')">禁用</button></td></tr>`).join("")+'</table>';
 }
 async function createOrg(){
-  try{ await api("/api/v1/admin/organizers",{method:"POST",headers:{Authorization:"Bearer "+aTok,
+  try{ await api(`${AB}/organizers`,{method:"POST",headers:{Authorization:"Bearer "+aTok,
       "Content-Type":"application/json"},body:JSON.stringify({name:nName.value,login_name:nLogin.value,password:nPass.value})});
     loadOrgs();
   }catch(e){ alert(e.message); }

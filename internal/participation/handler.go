@@ -323,6 +323,21 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, h.RT.Snapshot(r.Context(), r.PathValue("event_id")))
 }
 
+// Info: GET /api/v1/p/e/{event_id}/info — public event meta for the big
+// screen (name + expected_count drive the heart brightness target).
+func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
+	ev, err := h.Repo.Event(r.Context(), r.PathValue("event_id"))
+	if err != nil {
+		httpx.Fail(w, http.StatusNotFound, "event_not_found", "event not found")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"event_id":       ev.ID,
+		"name":           ev.Name,
+		"expected_count": ev.ExpectedCount,
+	})
+}
+
 // Stream: GET /api/v1/p/e/{event_id}/stream  (SSE, public — for the big screen)
 func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("event_id")

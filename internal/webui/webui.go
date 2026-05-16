@@ -30,8 +30,17 @@ func Mobile() http.HandlerFunc { return page("mobile.html") }
 // Screen serves the live big-screen page (/screen/{event_id}).
 func Screen() http.HandlerFunc { return page("screen.html") }
 
-// Admin serves the throwaway organizer/super-admin console (/admin).
-func Admin() http.HandlerFunc { return page("admin.html") }
+// Admin serves the console with the (possibly obfuscated) admin API base
+// injected, so the embedded page calls the right slug (T-083).
+func Admin(adminAPIBase string) http.HandlerFunc {
+	raw, _ := files.ReadFile("admin.html")
+	html := strings.ReplaceAll(string(raw), "__ADMIN_BASE__", adminAPIBase)
+	b := []byte(html)
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(b)
+	}
+}
 
 // Asset serves embedded brand images at /assets/{name} (png only).
 func Asset() http.HandlerFunc {

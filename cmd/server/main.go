@@ -67,7 +67,7 @@ func run() error {
 	exp := export.New(st.JS, r, strg)
 
 	if cfg.Seed {
-		if err := seed.Run(rootCtx, st.PG, sig, cfg.PublicBaseURL); err != nil {
+		if err := seed.Run(rootCtx, st.PG, sig, cfg.PublicBaseURL, cfg.SeedAdminPw, cfg.SeedOrgPw); err != nil {
 			log.Printf("seed: %v (continuing)", err)
 		}
 	}
@@ -95,6 +95,7 @@ func run() error {
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}", pa.Bootstrap)
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/steps/{step_id}/submit", pa.Submit)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/count", pa.Count)
+	mux.HandleFunc("GET /api/v1/p/e/{event_id}/info", pa.Info)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/stream", pa.Stream)
 
 	// organizer
@@ -109,16 +110,20 @@ func run() error {
 	mux.HandleFunc("GET /api/v1/org/exports/{job_id}", og.ExportStatus)
 	mux.HandleFunc("GET /api/v1/org/exports/{job_id}/download", og.ExportDownload)
 
-	// admin (super-admin, separate auth domain)
-	mux.HandleFunc("POST /api/v1/admin/login", ad.Login)
-	mux.HandleFunc("GET /api/v1/admin/organizers", ad.ListOrganizers)
-	mux.HandleFunc("POST /api/v1/admin/organizers", ad.CreateOrganizer)
-	mux.HandleFunc("POST /api/v1/admin/organizers/{id}/status", ad.SetOrganizerStatus)
+	// admin (super-admin, separate auth domain) — path obfuscated by
+	// CAPTAIN_ADMIN_PATH (T-083); the obvious /admin is intentionally
+	// unregistered → 404.
+	ap := cfg.AdminPath
+	apiAdmin := "/api/v1/" + ap
+	mux.HandleFunc("POST "+apiAdmin+"/login", ad.Login)
+	mux.HandleFunc("GET "+apiAdmin+"/organizers", ad.ListOrganizers)
+	mux.HandleFunc("POST "+apiAdmin+"/organizers", ad.CreateOrganizer)
+	mux.HandleFunc("POST "+apiAdmin+"/organizers/{id}/status", ad.SetOrganizerStatus)
 
 	// demo pages (throwaway, REQUIREMENTS §11.5)
 	mux.HandleFunc("GET /m/{event_id}", webui.Mobile())
 	mux.HandleFunc("GET /screen/{event_id}", webui.Screen())
-	mux.HandleFunc("GET /admin", webui.Admin())
+	mux.HandleFunc("GET /"+ap, webui.Admin(apiAdmin))
 	mux.HandleFunc("GET /assets/{name}", webui.Asset())
 
 	srv := &http.Server{
