@@ -91,7 +91,7 @@ func run() error {
 	}
 
 	pa := &participation.Handler{Repo: r, Sig: sig, RT: rt,
-		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper}
+		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper, TS: ts}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
 		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts}
 	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts}

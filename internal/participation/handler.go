@@ -18,6 +18,7 @@ import (
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/token"
+	"github.com/hertz/captain/internal/turnstile"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/skip2/go-qrcode"
 )
@@ -29,6 +30,7 @@ type Handler struct {
 	RL     *httpx.RateLimiter
 	JS     jetstream.JetStream
 	Pepper string // REQ-CHANGE-001 fingerprint/participant_key HMAC pepper
+	TS     *turnstile.Verifier
 }
 
 func deviceHash(uuid string) string {
@@ -119,6 +121,7 @@ type submitReq struct {
 	Name            string            `json:"name"`
 	EmployeeNumber  string            `json:"employee_number"`
 	PhoneLast4      string            `json:"phone_last4"`
+	Turnstile       string            `json:"turnstile_token"` // REQ-CHANGE-004
 }
 
 // resolveIdentity implements the staff/external branches (codex algorithm).
@@ -268,6 +271,11 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 
 	switch step.Type {
 	case flow.StepCheckin:
+		// 用户签到加入 Cloudflare 人机认证（REQ-CHANGE-004；mode=off 时放行）
+		if h.TS != nil && !h.TS.Verify(r.Context(), body.Turnstile, httpx.ClientIP(r)) {
+			httpx.Fail(w, http.StatusForbidden, "captcha_failed", "人机验证未通过")
+			return
+		}
 		first, err := h.Repo.MarkCheckin(r.Context(), partcpnID)
 		if err != nil {
 			httpx.Fail(w, http.StatusInternalServerError, "db", "checkin failed")
