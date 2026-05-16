@@ -61,12 +61,12 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusBadRequest, "missing_device", "device id required")
 		return
 	}
-	if !h.RL.Allow(r.Context(), "mint:dev:"+deviceUUID, 10, time.Minute) {
+	dh := deviceHash(deviceUUID)
+	// key mint limiter by hashed device so raw d= rotation can't bypass (codex review)
+	if !h.RL.Allow(r.Context(), "mint:dev:"+dh, 10, time.Minute) {
 		httpx.Fail(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
 		return
 	}
-
-	dh := deviceHash(deviceUUID)
 	// session hard-expires at event_end+2h, capped to 8h absolute
 	exp := ev.EndAt.Add(2 * time.Hour)
 	if cap8 := time.Now().Add(8 * time.Hour); exp.After(cap8) {
@@ -80,7 +80,7 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusInternalServerError, "internal", "sign failed")
 		return
 	}
-	httpx.SetSessionCookie(w, sess, exp)
+	httpx.SetSessionCookie(w, sess, exp, r.TLS != nil)
 
 	raw, err := h.Repo.FlowSchema(r.Context(), ev.FlowConfigID)
 	if err != nil {
@@ -117,7 +117,8 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.RL.Allow(r.Context(), "submit:"+sess.DeviceHash+":"+eventID, 6, time.Minute) {
+	if !h.RL.Allow(r.Context(), "submit:dev:"+sess.DeviceHash+":"+eventID, 6, time.Minute) ||
+		!h.RL.Allow(r.Context(), "submit:ip:"+httpx.ClientIP(r), 60, time.Minute) {
 		httpx.Fail(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
 		return
 	}

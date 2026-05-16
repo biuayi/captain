@@ -49,7 +49,17 @@ func (m *Manager) OnCheckin(ctx context.Context, eventID string) {
 		log.Printf("realtime: incr %s: %v", eventID, err)
 		return
 	}
-	m.publish(ctx, Snapshot{EventID: eventID, Count: n, TS: time.Now().UnixMilli()})
+	s := Snapshot{EventID: eventID, Count: n, TS: time.Now().UnixMilli()}
+	m.apply(s)        // local fan-out: robust to Publish failure (codex review)
+	m.publish(ctx, s) // cross-instance fan-out
+}
+
+// apply records a snapshot for the next throttled flush.
+func (m *Manager) apply(s Snapshot) {
+	m.mu.Lock()
+	m.latest[s.EventID] = s
+	m.dirty[s.EventID] = true
+	m.mu.Unlock()
 }
 
 func (m *Manager) publish(ctx context.Context, s Snapshot) {
@@ -111,13 +121,13 @@ func (m *Manager) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case msg := <-msgs:
+		case msg, ok := <-msgs:
+			if !ok {
+				return // pub/sub closed (shutdown); ctx.Done also covers this
+			}
 			var s Snapshot
 			if json.Unmarshal([]byte(msg.Payload), &s) == nil {
-				m.mu.Lock()
-				m.latest[s.EventID] = s
-				m.dirty[s.EventID] = true
-				m.mu.Unlock()
+				m.apply(s)
 			}
 		case <-flush.C:
 			m.flush()
@@ -162,7 +172,9 @@ func (m *Manager) reconcile(ctx context.Context) {
 		redisN, _ := m.rdb.Get(ctx, countKey(id)).Int64()
 		if redisN != pgN {
 			m.rdb.Set(ctx, countKey(id), pgN, 0)
-			m.publish(ctx, Snapshot{EventID: id, Count: pgN, TS: time.Now().UnixMilli()})
+			s := Snapshot{EventID: id, Count: pgN, TS: time.Now().UnixMilli()}
+			m.apply(s)
+			m.publish(ctx, s)
 			log.Printf("realtime: reconciled %s redis=%d -> pg=%d", id, redisN, pgN)
 		}
 	}

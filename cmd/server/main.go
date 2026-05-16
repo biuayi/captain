@@ -36,6 +36,9 @@ func main() {
 func run() error {
 	cfg := config.Load()
 	log.Printf("captain starting addr=%s storage=%s", cfg.HTTPAddr, cfg.StorageDriver)
+	if cfg.TokenSecret == "dev-only-insecure-secret-change-me" {
+		log.Printf("WARNING: CAPTAIN_TOKEN_SECRET is the insecure default — set a strong secret before any non-dev use")
+	}
 
 	rootCtx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)

@@ -18,12 +18,14 @@ func BearerToken(r *http.Request) string {
 }
 
 // SetSessionCookie writes the HttpOnly device-session cookie.
-func SetSessionCookie(w http.ResponseWriter, value string, exp time.Time) {
+// secure must be set when served over HTTPS (codex review).
+func SetSessionCookie(w http.ResponseWriter, value string, exp time.Time, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookie,
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  exp,
 	})
