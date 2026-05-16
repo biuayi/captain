@@ -55,8 +55,9 @@
 
 ## 4. 阻塞 / 变更日志（最新在上）
 
-**B-URL（OPEN，仅差 cloudflared 二进制）**：硬化已完成，可安全暴露。安全层一致拦截 AI 自行下载/运行 cloudflared 与自改 settings。用户二选一：① `apt/brew install cloudflared`（或下 github.com/cloudflare/cloudflared release 到 /usr/local/bin）② settings.allow 加 `Bash(cloudflared:*)`。之后 AI 一条 `cloudflared tunnel --url http://localhost:8080` 出公网 https。
-**B-LOGO（OPEN，需用户提供）**：广东省游心公益基金会 logo——放 `captain/internal/webui/assets/youxin-logo.png`（或给 URL），现优雅降级为文字署名。
+**B-URL（RESOLVED）**：用户自行 `cloudflared tunnel` 跑通，公网 `https://authority-writing-beach-reid.trycloudflare.com`（隧道在用户前台 shell；trycloudflare 临时、关窗即失效，长期需 named tunnel）。
+**B-LOGO（RESOLVED）**：用户提供 `https://youxin.37.com/css/images/logo.png`，已下载内嵌 `captain/internal/webui/assets/youxin-logo.png`，大屏+mobile 已用。
+**B-TS（OPEN，需用户提供）**：Cloudflare Turnstile **sitekey + secret**（用户 Cloudflare 控制台获取）。前后端集成已完成且默认 `off`（惰性无回归）；用户提供后设 `deploy/.env`：`CAPTAIN_TURNSTILE_MODE=enforce`/`CAPTAIN_TURNSTILE_SITEKEY=`/`CAPTAIN_TURNSTILE_SECRET=` 即激活；服务端 siteverify 需容器出网（届时配 `HTTPS_PROXY=宿主代理` 同 docker 守护进程方案）。
 
 - `2026-05-17 | Claude@check-in-kiosk-session | 大批次 | React三端=正式UI(隧道验证)；codex隔离重设计大屏(去大爱心)+扫码二维码+去页眉；登录3s/10次锁定;Turnstile服务端+前端挂件(默认off);mobile游心logo。captain 1566e55/kiosk 183f766。**B-TS**:Turnstile 待用户给 sitekey/secret 才激活`
 - `2026-05-17 | Claude@check-in-kiosk-session | 硬化+大屏 | T-083强口令/密钥/管理URL混淆完成验证(→HISTORY)；大屏改版游心公益基金会+爱心跳动/亮度进度+/info；captain 10fd961 / kiosk c16ddca。待用户：cloudflared 二进制(B-URL)、游心logo(B-LOGO)`
