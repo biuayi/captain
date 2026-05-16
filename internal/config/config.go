@@ -22,6 +22,10 @@ type Config struct {
 	TurnstileSecret string
 	StorageDriver   string
 	StorageDir      string
+	OSSEndpoint     string
+	OSSBucket       string
+	OSSKeyID        string
+	OSSKeySecret    string
 	Seed            bool
 }
 
@@ -62,6 +66,10 @@ func Load() Config {
 		TurnstileSecret: env("CAPTAIN_TURNSTILE_SECRET", ""),
 		StorageDriver:   env("CAPTAIN_STORAGE_DRIVER", "local"),
 		StorageDir:      env("CAPTAIN_STORAGE_DIR", "/data"),
+		OSSEndpoint:     env("CAPTAIN_OSS_ENDPOINT", ""),
+		OSSBucket:       env("CAPTAIN_OSS_BUCKET", ""),
+		OSSKeyID:        env("CAPTAIN_OSS_KEY_ID", ""),
+		OSSKeySecret:    env("CAPTAIN_OSS_KEY_SECRET", ""),
 		Seed:            envBool("CAPTAIN_SEED", true),
 	}
 }

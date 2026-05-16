@@ -1,5 +1,6 @@
-// Package storage abstracts object storage so the local FS driver works
-// without a server while aliyun OSS can be slotted in later (REQUIREMENTS §10-P2).
+// Package storage abstracts object storage. Local FS driver runs without a
+// server; aliyun OSS driver (REQUIREMENTS §10-P2 / T-026) activates when
+// CAPTAIN_STORAGE_DRIVER=aliyun + OSS creds are configured.
 package storage
 
 import (
@@ -16,15 +17,26 @@ type Storage interface {
 	Open(key string) (io.ReadCloser, error)
 }
 
-// New selects a driver. "aliyun" is intentionally unimplemented in v1.
-func New(driver, dir string) (Storage, error) {
-	switch driver {
+type Options struct {
+	Driver       string
+	Dir          string
+	OSSEndpoint  string
+	OSSBucket    string
+	OSSKeyID     string
+	OSSKeySecret string
+}
+
+func New(o Options) (Storage, error) {
+	switch o.Driver {
 	case "local", "":
-		return &localFS{root: dir}, nil
+		return &localFS{root: o.Dir}, nil
 	case "aliyun":
-		return nil, errors.New("storage: aliyun OSS driver not implemented in v1 (use local); see REQUIREMENTS §10-P2")
+		if o.OSSEndpoint == "" || o.OSSBucket == "" || o.OSSKeyID == "" || o.OSSKeySecret == "" {
+			return nil, errors.New("storage: aliyun 需 CAPTAIN_OSS_ENDPOINT/BUCKET/KEY_ID/KEY_SECRET")
+		}
+		return newAliyun(o)
 	default:
-		return nil, errors.New("storage: unknown driver " + driver)
+		return nil, errors.New("storage: unknown driver " + o.Driver)
 	}
 }
 

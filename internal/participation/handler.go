@@ -122,6 +122,11 @@ type submitReq struct {
 	EmployeeNumber  string            `json:"employee_number"`
 	PhoneLast4      string            `json:"phone_last4"`
 	Turnstile       string            `json:"turnstile_token"` // REQ-CHANGE-004
+	Geo             *struct {
+		Lat      float64 `json:"lat"`
+		Lng      float64 `json:"lng"`
+		Accuracy float64 `json:"accuracy"`
+	} `json:"geo"` // REQ-CHANGE-002 T-080（可选）
 }
 
 // resolveIdentity implements the staff/external branches (codex algorithm).
@@ -283,6 +288,10 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 		}
 		if first {
 			h.RT.OnCheckin(r.Context(), eventID)
+			if body.Geo != nil {
+				_ = h.Repo.SetCheckinGeo(r.Context(), partcpnID,
+					body.Geo.Lat, body.Geo.Lng, body.Geo.Accuracy)
+			}
 			h.publish(r.Context(), "checkin.submitted", map[string]string{
 				"event_id": eventID, "participation_id": partcpnID})
 		}

@@ -29,7 +29,8 @@ func main() {
 	dur := flag.Int("dur", 45, "max seconds")
 	flag.Parse()
 	if *event == "" {
-		fmt.Println("need -event"); return
+		fmt.Println("need -event")
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*dur)*time.Second)

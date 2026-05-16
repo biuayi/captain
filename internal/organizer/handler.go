@@ -4,6 +4,7 @@ package organizer
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hertz/captain/internal/export"
+	"github.com/hertz/captain/internal/flow"
 	"github.com/hertz/captain/internal/httpx"
 	"github.com/hertz/captain/internal/identity"
 	"github.com/hertz/captain/internal/loginguard"
@@ -130,6 +132,148 @@ func (h *Handler) Participants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"participants": rows, "total": len(rows)})
+}
+
+// ---- T-021: 流程编排 / 活动 CRUD ----
+
+type createFlowReq struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+}
+
+// CreateFlow: POST /api/v1/org/flows — 校验流程 schema 后入库（本租户）。
+func (h *Handler) CreateFlow(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	var req createFlowReq
+	if err := httpx.DecodeJSON(r, &req); err != nil || req.Name == "" || len(req.Schema) == 0 {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "name/schema 必填")
+		return
+	}
+	if _, err := flow.Parse(req.Schema); err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "flow_invalid", err.Error())
+		return
+	}
+	id, err := h.Repo.CreateFlowConfig(r.Context(), orgID, req.Name, req.Schema)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "创建失败")
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, map[string]string{"id": id})
+}
+
+// ListFlows: GET /api/v1/org/flows
+func (h *Handler) ListFlows(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	fs, err := h.Repo.ListFlowConfigs(r.Context(), orgID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "查询失败")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"flows": fs})
+}
+
+type eventReq struct {
+	Name               string `json:"name"`
+	StartAt            string `json:"start_at"` // RFC3339
+	EndAt              string `json:"end_at"`
+	ExpectedCount      int    `json:"expected_count"`
+	ScreenTemplateCode string `json:"screen_template_code"`
+	FlowConfigID       string `json:"flow_config_id"`
+	Status             string `json:"status"` // update 时用：draft|active|ended
+}
+
+func (h *Handler) parseEvent(w http.ResponseWriter, r *http.Request, orgID string) (eventReq, time.Time, time.Time, bool) {
+	var req eventReq
+	if err := httpx.DecodeJSON(r, &req); err != nil || req.Name == "" {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "name 必填")
+		return req, time.Time{}, time.Time{}, false
+	}
+	st, e1 := time.Parse(time.RFC3339, req.StartAt)
+	en, e2 := time.Parse(time.RFC3339, req.EndAt)
+	if e1 != nil || e2 != nil || !st.Before(en) {
+		httpx.Fail(w, http.StatusBadRequest, "bad_time", "start_at/end_at 需 RFC3339 且 start<end")
+		return req, time.Time{}, time.Time{}, false
+	}
+	if req.ExpectedCount < 0 {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "expected_count >=0")
+		return req, time.Time{}, time.Time{}, false
+	}
+	if !h.Repo.FlowOwned(r.Context(), req.FlowConfigID, orgID) {
+		httpx.Fail(w, http.StatusBadRequest, "flow_not_owned", "flow_config_id 不属于本活动方")
+		return req, time.Time{}, time.Time{}, false
+	}
+	if req.ScreenTemplateCode == "" {
+		req.ScreenTemplateCode = "ink-wash-default"
+	}
+	return req, st, en, true
+}
+
+// CreateEvent: POST /api/v1/org/events
+func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	req, st, en, valid := h.parseEvent(w, r, orgID)
+	if !valid {
+		return
+	}
+	id, err := h.Repo.CreateEvent(r.Context(), orgID, req.Name, st, en,
+		req.ExpectedCount, req.ScreenTemplateCode, req.FlowConfigID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "创建失败")
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, map[string]string{"id": id, "status": "draft"})
+}
+
+// UpdateEvent: PUT /api/v1/org/events/{id}
+func (h *Handler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	req, st, en, valid := h.parseEvent(w, r, orgID)
+	if !valid {
+		return
+	}
+	status := req.Status
+	if status != "draft" && status != "active" && status != "ended" {
+		status = "draft"
+	}
+	if err := h.Repo.UpdateEvent(r.Context(), r.PathValue("id"), orgID, req.Name,
+		st, en, req.ExpectedCount, req.ScreenTemplateCode, req.FlowConfigID, status); err != nil {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "活动不存在或非本租户")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"id": r.PathValue("id"), "status": status})
+}
+
+// SetEventStatus: POST /api/v1/org/events/{id}/status  {status}
+func (h *Handler) SetEventStatus(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	var b struct {
+		Status string `json:"status"`
+	}
+	if err := httpx.DecodeJSON(r, &b); err != nil ||
+		(b.Status != "draft" && b.Status != "active" && b.Status != "ended") {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "status 须为 draft|active|ended")
+		return
+	}
+	if err := h.Repo.SetEventStatus(r.Context(), r.PathValue("id"), orgID, b.Status); err != nil {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "活动不存在或非本租户")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": b.Status})
 }
 
 // EntryLink: GET /api/v1/org/events/{id}/entry

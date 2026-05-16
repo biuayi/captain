@@ -61,7 +61,11 @@ func run() error {
 
 	sig := token.New(cfg.TokenSecret)
 	r := repo.New(st.PG)
-	strg, err := storage.New(cfg.StorageDriver, cfg.StorageDir)
+	strg, err := storage.New(storage.Options{
+		Driver: cfg.StorageDriver, Dir: cfg.StorageDir,
+		OSSEndpoint: cfg.OSSEndpoint, OSSBucket: cfg.OSSBucket,
+		OSSKeyID: cfg.OSSKeyID, OSSKeySecret: cfg.OSSKeySecret,
+	})
 	if err != nil {
 		return err
 	}
@@ -116,6 +120,11 @@ func run() error {
 	// organizer
 	mux.HandleFunc("POST /api/v1/org/login", og.Login)
 	mux.HandleFunc("GET /api/v1/org/events", og.Events)
+	mux.HandleFunc("POST /api/v1/org/flows", og.CreateFlow)
+	mux.HandleFunc("GET /api/v1/org/flows", og.ListFlows)
+	mux.HandleFunc("POST /api/v1/org/events", og.CreateEvent)
+	mux.HandleFunc("PUT /api/v1/org/events/{id}", og.UpdateEvent)
+	mux.HandleFunc("POST /api/v1/org/events/{id}/status", og.SetEventStatus)
 	mux.HandleFunc("GET /api/v1/org/events/{id}", og.Event)
 	mux.HandleFunc("GET /api/v1/org/events/{id}/participants", og.Participants)
 	mux.HandleFunc("GET /api/v1/org/events/{id}/entry", og.EntryLink)

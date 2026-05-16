@@ -101,7 +101,8 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM so Excel reads Chinese correctly
 	cw := csv.NewWriter(&buf)
 	header := []string{"participant_id", "identity_type", "identity_value",
-		"status", "last_step", "checkin_at", "first_seen_at"}
+		"status", "last_step", "checkin_at", "first_seen_at",
+		"checkin_lat", "checkin_lng", "checkin_accuracy"}
 	for _, k := range formKeys {
 		header = append(header, "登记_"+k)
 	}
@@ -111,12 +112,19 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 		if r.CheckinAt != nil {
 			checkin = r.CheckinAt.Format(time.RFC3339)
 		}
+		geo := func(f *float64) string {
+			if f == nil {
+				return ""
+			}
+			return fmt.Sprintf("%v", *f)
+		}
 		rec := []string{
-			r.ParticipantID, r.IdentityType, r.IdentityValue,
+			r.ParticipantID, r.IdentityType, csvSafe(r.IdentityValue),
 			r.Status, r.LastStep, checkin, r.FirstSeenAt.Format(time.RFC3339),
+			geo(r.Lat), geo(r.Lng), geo(r.Accuracy),
 		}
 		for _, k := range formKeys {
-			rec = append(rec, fmt.Sprintf("%v", r.Form[k]))
+			rec = append(rec, csvSafe(fmt.Sprintf("%v", r.Form[k])))
 		}
 		_ = cw.Write(rec)
 	}
@@ -138,6 +146,19 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 	_, _ = w.js.Publish(ctx, SubjectCompleted, b)
 	log.Printf("export: job %s done (%d rows) -> %s", jobID, len(rows), key)
 	return nil
+}
+
+// csvSafe neutralizes CSV formula injection: cells starting with = + - @ (or
+// tab/CR) are prefixed with a single quote so Excel/Sheets treat them as text.
+func csvSafe(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
 
 func (w *Worker) fail(ctx context.Context, jobID string, e error) {

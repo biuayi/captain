@@ -127,6 +127,92 @@ func (r *Repo) EventsByOrganizer(ctx context.Context, organizerID string) ([]dom
 	return out, rows.Err()
 }
 
+// ---- T-021: 活动 / 流程编排 CRUD（均按 organizer 租户作用域）----
+
+func (r *Repo) CreateFlowConfig(ctx context.Context, organizerID, name string, schema []byte) (string, error) {
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO flow_config (organizer_id, name, schema_json)
+		 VALUES ($1,$2,$3::jsonb) RETURNING id`, organizerID, name, schema).Scan(&id)
+	return id, err
+}
+
+type FlowRow struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Version   int       `json:"version"`
+	Published bool      `json:"published"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (r *Repo) ListFlowConfigs(ctx context.Context, organizerID string) ([]FlowRow, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT id, name, version, published, created_at FROM flow_config
+		 WHERE organizer_id=$1 ORDER BY created_at DESC`, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FlowRow
+	for rows.Next() {
+		var f FlowRow
+		if err := rows.Scan(&f.ID, &f.Name, &f.Version, &f.Published, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// FlowOwned reports whether a flow_config belongs to the organizer.
+func (r *Repo) FlowOwned(ctx context.Context, flowID, organizerID string) bool {
+	var n int
+	_ = r.pg.QueryRow(ctx,
+		`SELECT count(*) FROM flow_config WHERE id=$1 AND organizer_id=$2`,
+		flowID, organizerID).Scan(&n)
+	return n == 1
+}
+
+func (r *Repo) CreateEvent(ctx context.Context, organizerID, name string, start, end time.Time, expected int, screenTpl, flowID string) (string, error) {
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO event (organizer_id, name, status, start_at, end_at,
+		        expected_count, screen_template_code, flow_config_id)
+		 VALUES ($1,$2,'draft',$3,$4,$5,$6,$7) RETURNING id`,
+		organizerID, name, start, end, expected, screenTpl, flowID).Scan(&id)
+	return id, err
+}
+
+// UpdateEvent updates mutable fields, tenant-scoped. Returns ErrNotFound if
+// the event isn't this organizer's.
+func (r *Repo) UpdateEvent(ctx context.Context, id, organizerID, name string, start, end time.Time, expected int, screenTpl, flowID, status string) error {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE event SET name=$3, start_at=$4, end_at=$5, expected_count=$6,
+		        screen_template_code=$7, flow_config_id=$8, status=$9
+		 WHERE id=$1 AND organizer_id=$2`,
+		id, organizerID, name, start, end, expected, screenTpl, flowID, status)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) SetEventStatus(ctx context.Context, id, organizerID, status string) error {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE event SET status=$3 WHERE id=$1 AND organizer_id=$2`,
+		id, organizerID, status)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // FlowSchema returns the raw schema_json for a flow config.
 func (r *Repo) FlowSchema(ctx context.Context, flowID string) (json.RawMessage, error) {
 	var raw json.RawMessage
@@ -172,6 +258,14 @@ func (r *Repo) EnsureParticipation(ctx context.Context, eventID, participantID s
 		 ON CONFLICT (event_id, participant_id) DO UPDATE SET event_id=EXCLUDED.event_id
 		 RETURNING id`, eventID, participantID).Scan(&id)
 	return id, err
+}
+
+// SetCheckinGeo records the (optional) checkin location once (REQ-CHANGE-002 T-080).
+func (r *Repo) SetCheckinGeo(ctx context.Context, participationID string, lat, lng, acc float64) error {
+	_, err := r.pg.Exec(ctx,
+		`UPDATE participation SET checkin_lat=$2, checkin_lng=$3, checkin_accuracy=$4
+		 WHERE id=$1 AND checkin_lat IS NULL`, participationID, lat, lng, acc)
+	return err
 }
 
 // MarkCheckin sets checkin_at once; returns true only on the first time.
@@ -235,6 +329,9 @@ type ParticipantRow struct {
 	IdentityValue string
 	Profile       map[string]any
 	Form          map[string]any // 最近一次 form step 采集的登记信息（动态字段）
+	Lat           *float64
+	Lng           *float64
+	Accuracy      *float64
 	CheckinAt     *time.Time
 	Status        string
 	LastStep      string
@@ -247,7 +344,8 @@ func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]Particip
 	rows, err := r.pg.Query(ctx,
 		`SELECT p.id, p.identity_type, COALESCE(p.identity_value,''), p.profile,
 		        pt.checkin_at, pt.status, COALESCE(pt.last_step_id,''), p.first_seen_at,
-		        COALESCE(f.payload,'{}'::jsonb)
+		        COALESCE(f.payload,'{}'::jsonb),
+		        pt.checkin_lat, pt.checkin_lng, pt.checkin_accuracy
 		 FROM participant p
 		 JOIN participation pt ON pt.participant_id = p.id
 		 LEFT JOIN LATERAL (
@@ -266,7 +364,8 @@ func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]Particip
 		var pr ParticipantRow
 		var prof, form []byte
 		if err := rows.Scan(&pr.ParticipantID, &pr.IdentityType, &pr.IdentityValue,
-			&prof, &pr.CheckinAt, &pr.Status, &pr.LastStep, &pr.FirstSeenAt, &form); err != nil {
+			&prof, &pr.CheckinAt, &pr.Status, &pr.LastStep, &pr.FirstSeenAt, &form,
+			&pr.Lat, &pr.Lng, &pr.Accuracy); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(prof, &pr.Profile)
