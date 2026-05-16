@@ -1,20 +1,25 @@
-// Package webui serves the minimal 水墨 demo pages so the vertical slice is
-// visually verifiable. These are throwaway — the React monorepo
-// (check-in-kiosk) replaces them later (REQUIREMENTS §11.5).
-// Brand assets under assets/ are official 寻道大千 art the organizer supplied.
+// Package webui serves the public UI. The real UI is the check-in-kiosk
+// React monorepo, whose built dist is embedded here at build time
+// (internal/webui/embed/{mobile,admin,bigscreen}, gitignored — produced by
+// the frontend build step). screen.html stays as the big-screen until the
+// codex redesign is integrated. Brand assets live under assets/.
 package webui
 
 import (
 	"embed"
+	"io/fs"
 	"net/http"
 	"strings"
 )
 
-//go:embed mobile.html screen.html admin.html
+//go:embed screen.html
 var files embed.FS
 
 //go:embed assets/*.png
 var assets embed.FS
+
+//go:embed embed
+var reactFS embed.FS
 
 func page(name string) http.HandlerFunc {
 	b, _ := files.ReadFile(name)
@@ -24,22 +29,34 @@ func page(name string) http.HandlerFunc {
 	}
 }
 
-// Mobile serves the participant H5 page (/m/{event_id}).
-func Mobile() http.HandlerFunc { return page("mobile.html") }
-
-// Screen serves the live big-screen page (/screen/{event_id}).
+// Screen serves the live big-screen (/screen/{event_id}).
 func Screen() http.HandlerFunc { return page("screen.html") }
 
-// Admin serves the console with the (possibly obfuscated) admin API base
-// injected, so the embedded page calls the right slug (T-083).
-func Admin(adminAPIBase string) http.HandlerFunc {
-	raw, _ := files.ReadFile("admin.html")
-	html := strings.ReplaceAll(string(raw), "__ADMIN_BASE__", adminAPIBase)
-	b := []byte(html)
+// ReactIndex serves a React app's index.html for its SPA route. `inject`,
+// if non-empty, is spliced before </head> (used to pass the obfuscated
+// admin path segment to the admin app, T-083).
+func ReactIndex(app, inject string) http.HandlerFunc {
+	b, _ := reactFS.ReadFile("embed/" + app + "/index.html")
+	html := string(b)
+	if inject != "" {
+		html = strings.Replace(html, "</head>", inject+"</head>", 1)
+	}
+	out := []byte(html)
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(b)
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write(out)
 	}
+}
+
+// ReactStatic serves a React app's hashed assets (mount under its vite base).
+func ReactStatic(app string) http.Handler {
+	sub, _ := fs.Sub(reactFS, "embed/"+app)
+	fsrv := http.FileServer(http.FS(sub))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		fsrv.ServeHTTP(w, r)
+	})
 }
 
 // Asset serves embedded brand images at /assets/{name} (png only).

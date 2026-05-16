@@ -120,10 +120,14 @@ func run() error {
 	mux.HandleFunc("POST "+apiAdmin+"/organizers", ad.CreateOrganizer)
 	mux.HandleFunc("POST "+apiAdmin+"/organizers/{id}/status", ad.SetOrganizerStatus)
 
-	// demo pages (throwaway, REQUIREMENTS §11.5)
-	mux.HandleFunc("GET /m/{event_id}", webui.Mobile())
+	// 正式 UI = check-in-kiosk React（dist 内嵌）；screen 暂用内嵌页待 codex 改版
+	mux.HandleFunc("GET /m/{event_id}", webui.ReactIndex("mobile", ""))
+	mux.Handle("GET /m-static/", http.StripPrefix("/m-static/", webui.ReactStatic("mobile")))
 	mux.HandleFunc("GET /screen/{event_id}", webui.Screen())
-	mux.HandleFunc("GET /"+ap, webui.Admin(apiAdmin))
+	mux.Handle("GET /s-static/", http.StripPrefix("/s-static/", webui.ReactStatic("bigscreen")))
+	mux.HandleFunc("GET /"+ap, webui.ReactIndex("admin",
+		`<script>window.__ADMIN_SEG__="`+ap+`"</script>`))
+	mux.Handle("GET /a-static/", http.StripPrefix("/a-static/", webui.ReactStatic("admin")))
 	mux.HandleFunc("GET /assets/{name}", webui.Asset())
 
 	srv := &http.Server{
