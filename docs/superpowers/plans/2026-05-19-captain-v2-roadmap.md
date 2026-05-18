@@ -147,13 +147,13 @@
 
 ## Phase SS-6 — 活动大屏实时服务
 
-- [ ] **SS6-01** realtime Snapshot→typed Envelope `{type,count?,winner?,ts}`，保留顶层 count 向后兼容 — Modify `internal/realtime/realtime.go` | 验收: 旧大屏仍读 count | 测试: 兼容断言
-- [ ] **SS6-02** realtime `OnParticipated` 取代裸 OnCheckin 触发（接 SS-4 口径） — Modify `internal/realtime/realtime.go`, `internal/participation/handler.go` | 验收: 计数触发点正确 | 测试: 触发断言
-- [ ] **SS6-03** realtime 消费 NATS `prize.won` → `win:{event}` capped LIST(LTRIM) + 广播 winner 信封 — Modify `internal/realtime/realtime.go`, `cmd/server/main.go` | 验收: 中大奖滚动 | 测试: 注入 prize.won
-- [ ] **SS6-04** SSE 连接建立即发 count 快照 +（可选）最近 winners（transient 不回放） — Modify `internal/realtime/realtime.go` | 验收: 重连发快照 | 测试: 重连断言
-- [ ] **SS6-05** `milestone` 信封（完成人数等低频附带，可选） — Modify `internal/realtime/realtime.go` | 验收: 低频不刷屏 | 测试: 节流
-- [ ] **SS6-06** Stream/count/info/qr 保留回归（确保 refactor 无破坏） — Modify tests | 验收: 旧端点 200 | 测试: 回归
-- [ ] **SS6-07** SS-6 阶段验收：build/vet/test + screenstress 不退化 + smoke（中奖推大屏）全绿 — | 验收: 三连绿+压测+smoke | 测试: smoke 段
+- [x] **SS6-01** realtime Snapshot→typed Envelope `{type,count?,winner?,ts}`，保留顶层 count 向后兼容 — Modify `internal/realtime/realtime.go` | 验收: 旧大屏仍读 count | 测试: 兼容断言
+- [x] **SS6-02** realtime `OnParticipated` 取代裸 OnCheckin 触发（接 SS-4 口径） — Modify `internal/realtime/realtime.go`, `internal/participation/handler.go` | 验收: 计数触发点正确 | 测试: 触发断言
+- [x] **SS6-03** realtime 消费 NATS `prize.won` → `win:{event}` capped LIST(LTRIM) + 广播 winner 信封 — Modify `internal/realtime/realtime.go`, `cmd/server/main.go` | 验收: 中大奖滚动 | 测试: 注入 prize.won
+- [x] **SS6-04** SSE 连接建立即发 count 快照 +（可选）最近 winners（transient 不回放） — Modify `internal/realtime/realtime.go` | 验收: 重连发快照 | 测试: 重连断言
+- [x] **SS6-05** `milestone` 信封（完成人数等低频附带，可选） — Modify `internal/realtime/realtime.go` | 验收: 低频不刷屏 | 测试: 节流
+- [x] **SS6-06** Stream/count/info/qr 保留回归（确保 refactor 无破坏） — Modify tests | 验收: 旧端点 200 | 测试: 回归
+- [x] **SS6-07** SS-6 阶段验收：build/vet/test + screenstress 不退化 + smoke（中奖推大屏）全绿 — | 验收: 三连绿+压测+smoke | 测试: smoke 段
 
 ## Phase SS-7 — 活动记录查看与导出
 
