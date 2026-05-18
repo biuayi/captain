@@ -109,13 +109,15 @@
 | 0007 | `template_asset`(新) | `id uuid pk, template_id uuid fk, storage_key text, mime text, size bigint, role text, created_at` |
 | 0007 | `event` | + `flow_template_code text`（用户侧流程页模板，screen 沿用 `screen_template_code`）；`screen_template_code` 保留兼容 |
 | 0008 | `event_whitelist_entry` | + `claimed_jwt_jti text`（当前有效会话标记，防一号多端）；语义保留，登录改为**全手机号**匹配（已存 `phone_number`） |
-| 0008 | `checkin_day`(新) | `id uuid pk, participation_id uuid fk, day_date date, checked_at timestamptz, lat/lng/accuracy double precision NULL; UNIQUE(participation_id, day_date)`（R1 多日签到去重与门禁） |
+| 0008 | `event` | + `timezone text NOT NULL DEFAULT 'Asia/Shanghai'`（活动方设定，驱动 R1 日界）、`strict_fingerprint bool NOT NULL DEFAULT false`（D3 严格阻断开关） |
+| 0008 | `checkin_day`(新) | `id uuid pk, participation_id uuid fk, day_date date, checked_at timestamptz, lat/lng/accuracy double precision NULL; UNIQUE(participation_id, day_date)`（R1 多日签到去重与门禁；day_date 按 `event.timezone` 折算） |
+| 0008 | `participation_warning`(新) | `id uuid pk, participation_id uuid fk, event_id uuid fk, kind text, detail jsonb, created_at timestamptz; INDEX(event_id, created_at desc)`（D3 告警留痕：指纹不一致/顶号等，活动方可导出告警列表） |
 | 0009 | `exam_question`(新) | `id uuid pk, event_id uuid fk, step_id text, idx int, stem text, options jsonb, correct jsonb, score int, multi bool; INDEX(event_id, step_id, idx)` |
 | 0009 | `participation_step_record` | 复用承载 exam 结果 payload（`{answers,score,passed,picked[]}`）；不新表 |
 | 0010 | `lottery_prize`(新) | `id uuid pk, event_id uuid fk, step_id text, code text, name text, level text CHECK in(grand,normal,none), stock int NOT NULL, drawn int NOT NULL DEFAULT 0, weight int, image_key text; UNIQUE(event_id,step_id,code); CHECK(drawn<=stock)` |
 | 0010 | `lottery_rig_entry`(新) | `id uuid pk, event_id uuid fk, step_id text, employee_number text, prize_code text, pool text CHECK in(A,B), created_by uuid, created_at; UNIQUE(event_id,step_id,employee_number)` |
 | 0010 | `lottery_result`(新) | `id uuid pk, event_id uuid fk, step_id text, participant_id uuid fk, prize_id uuid NULL fk, prize_level text, resolved_by text CHECK in(rig,random,miss), drawn_at timestamptz; UNIQUE(event_id,step_id,participant_id)`（抽奖幂等 + 防重抽） |
-| 0011 | `participation` | + `data_field_1 text`（通用文本，记录栏一）、`data_field_2 text`（OSS 资源 key，记录栏二）、`device_id text`（设备标识，导出可见）；`fingerprint_hash` 已在 `participant`（0003） |
+| 0011 | `participation` | + `data_field_1 text`（通用文本，记录栏一）、`data_field_2 text`（OSS 资源 key，记录栏二）、`device_id text`（设备标识，导出可见）、`current_stage text`（R1/R2/R3/R4/done，漏斗用，索引）、`stage_done jsonb NOT NULL DEFAULT '{}'`（各环节完成时间 `{R1:ts,...}`）、`completed_all bool NOT NULL DEFAULT false`、`completed_at timestamptz`；`fingerprint_hash` 已在 `participant`（0003）；`INDEX(event_id, current_stage)` 支撑漏斗聚合 |
 
 > 设计原则：能复用 `participation_step_record` 的（form/game/charity/reward/exam 结果）不新建表；需要**强约束/高频并发/独立生命周期**的（多日签到去重、奖品库存、内定名册、抽奖幂等、模板、平台配置、审计）才建表。与 0002 注释里"participant/participation 不合并"的既有判断一致。
 
@@ -188,7 +190,7 @@
 **功能**
 1. 活动方导入员工名单（**保留** CSV `employee_number,name,phone`）。
 2. 用户登录：四元组 = **名单内 用户ID/姓名 + 工号 + 手机号 + 活动ID(path)**。校验 `event_whitelist_entry`：`(event_id, employee_number)` 命中且 `name` 全等且 **全手机号 `phone_number` 全等**。成功 → upsert participant（staff 路径，复用 `UpsertParticipantFull`）+ 绑定指纹（复用 `ClaimWhitelist` 条件 UPDATE）+ 签发参与者 JWT。
-3. 一号一端：登录写 `claimed_jwt_jti`，旧会话失效（防借号）；指纹不一致仅告警不强阻断（员工换设备常见），可由活动方配置严格模式。
+3. 一号一端：登录写 `claimed_jwt_jti`，旧会话失效（防借号）。**D3 指纹不一致策略**：默认**记录告警**到 `participation_warning`（kind=`fingerprint_mismatch`/`session_takeover`），不阻断；活动方可在活动设置 `strict_fingerprint=true` 改为**严格阻断**（登录/提交直接拒绝并告警）。告警列表可由活动方导出（见 SS-7）。
 4. 登录硬化：`loginguard` scope `participant:{event_id}`（恒延迟+失败锁定）；可选 Turnstile。
 5. legacy 公开/匿名/external 路径 → `CAPTAIN_OPEN_PARTICIPATION=off` 默认关闭，仅 demo。
 
@@ -215,17 +217,27 @@
 
 **功能**
 1. 活动 CRUD（**保留**：起止时间、预计人数、状态 draft/active/ended、租户隔离、flow 归属校验）+ 选模板（SS-1）。受 `can_create_event` 权限位中间件控制。
-2. 流程编排：线性流（**保留无分支**），step 类型扩展 + "完成门禁"。flow_config schema v2：
+2. 流程编排：线性流（**保留无分支**）。用户侧规范流程 = **四个可选环节 R1~R4**，活动方各自决定是否启用、如何配置：
+
+| 环节 | 语义 | step.type | 启用判定 |
+|---|---|---|---|
+| **R1** 每日签到 | 0/1/N 天签到 | `checkin` | `days>0` 视为启用；`days=0` 跳过 |
+| **R2** 调查问卷 | 文本+图片 | `form` | 配置了 R2 step |
+| **R3** 在线考试 | 计分题库 | `exam` | 配置了 R3 step |
+| **R4** 在线抽奖 | A/B 奖池 | `lottery` | 配置了 R4 step |
+
+辅助 step（`charity`/`reward`/`result`/`game`）为**非环节**信息页，不进 R1-R4 门禁与漏斗（保留以兼容既有 flow）。flow_config schema v2：
 
 ```
-step.type ∈ { checkin, form, game, charity, reward, result, exam, lottery }
-step.gate ∈ { none(默认) | completeRequired }   // 门禁：未完成不得进入后续 step
-checkin.config = { mode:"single"|"multiday", days:int(>=0), timezone:"Asia/Shanghai",
-                   requireAllToProceed:bool, countTowardAttendance:true }   // days=0 跳过签到
+step.stage ∈ { R1, R2, R3, R4, none(默认，辅助页) }   // 同一 stage 可含多 step（如多日签到一组）
+checkin.config = { mode:"single"|"multiday", days:int(>=0),
+                   requireAllToProceed:bool, countTowardAttendance:true }  // 日界按 event.timezone(活动方设定,默认 Asia/Shanghai)；days=0 跳过 R1
 form.config    = { fields:[{id,type:text|phone|email|select|image|textarea, label, required, options?, maxSizeKB?}] }  // R2 问卷，image→上传
 exam.config    = { bankRef:true, mode:"all"|"random", randomCount:int, passScore:int, attemptLimit:int, shuffle:bool }  // R3，题目在 exam_question
 lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, prizesRef:true }  // R4，奖项在 lottery_prize
 ```
+
+**D5 顺序门禁（强制）**：在 flow 实际配置的环节中按 R1→R2→R3→R4 顺序硬门禁——某环节启用则必须**完成它**才能进入**下一个已启用环节**（未启用环节自动跳过，门禁链只串已启用项）。引擎据 `step.stage` 与参与者各环节完成态判定准入；越级提交回 `409 stage_gated`。活动方设定 `event.timezone`（默认 `Asia/Shanghai`）决定 R1 多日签到的"日"边界。
 3. R3 题库：活动方导入题目（CSV/JSON：题干、选项、正确项、分值、单/多选）→ `exam_question`。
 4. R4 奖项配置 + **A/B 内定名册**导入（CSV `employee_number,prize_code,pool`）→ `lottery_prize` / `lottery_rig_entry`；导入即审计。
 5. 名单导入（**保留** whitelist import）。
@@ -256,11 +268,17 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 ## SS-4 用户参与流程运行时（R1 签到 / R2 问卷 / R3 考试）
 
 **功能**
-1. 提交鉴权改为**参与者 JWT**（refactor 现 device-session）；保留限流（submit:participant/ip）、Turnstile（签到）。
-2. **R1 多日签到门禁**：每次签到落 `checkin_day(participation_id, day_date)`（`Asia/Shanghai` 当日，`ON CONFLICT DO NOTHING` 幂等，复用 `MarkCheckin` 条件写范式）；首次某日签到 → 计数+广播（**保留** `RT.OnCheckin`，去重口径=完成签到门禁的去重 participant）。`distinct day >= days` 前，后续 `gate=completeRequired` step 提交回 `409 step_gated`。`days=0` 跳过。
-3. **R2 问卷**：`form` step 记录到 `participation_step_record`（**保留**）；新增图片：`POST /p/e/{id}/uploads`（参与者 JWT，multipart，MIME/大小白名单）→ storage（OSS/local）→ 返回 key；payload 存 key；其一写入 `participation.data_field_2`（记录栏二=OSS 位置），文本类汇总写 `data_field_1`（记录栏一）。
-4. **R3 考试**：`exam` step 拉题（按 mode/randomCount 确定性选题，不下发 correct）；提交服务端判分（单/多选，`score` 累加，`passed=score>=passScore`），`attemptLimit` 控制；结果入 `participation_step_record`（payload `{picked,score,passed}`）+ 审计可选。
-5. 计数/对账/SSE：**保留** realtime 全链路；签到口径调整为多日门禁完成后才算"参与人数"（在 `CheckinCount` 改为 `count(distinct participation where 满足门禁)` 或维持"完成首日即计数"——见决策）。
+1. 提交鉴权改为**参与者 JWT**（refactor 现 device-session）；保留限流（submit:participant/ip）、Turnstile（签到）。每次进入/提交某 stage 前做 **D5 顺序门禁**校验（前序已启用环节须完成），未过回 `409 stage_gated`。
+2. **R1 多日签到**：每次签到落 `checkin_day(participation_id, day_date)`（按 `event.timezone` 折算当日，`ON CONFLICT DO NOTHING` 幂等，复用 `MarkCheckin` 条件写范式）。`distinct day >= days` 即 **R1 完成**（`days=0` 视为无 R1，门禁链跳过）。每日首次签到记一条；R1 完成事件 → 标记 `stage_done.R1`、推进 `current_stage`。
+3. **R2 问卷**：`form` step 记录到 `participation_step_record`（**保留**）；图片上传 `POST /p/e/{id}/uploads`（参与者 JWT，multipart，MIME/大小白名单）→ storage → key；payload 存 key；代表性资源写 `participation.data_field_2`（记录栏二=OSS 位置），文本汇总写 `data_field_1`（记录栏一）。提交完毕标记 `stage_done.R2`。
+4. **R3 考试**：`exam` step 拉题（按 mode/randomCount 确定性选题，不下发 correct）；服务端判分（单/多选，`score` 累加，`passed=score>=passScore`），`attemptLimit` 控制；结果入 `participation_step_record`（`{picked,score,passed}`）；完成标记 `stage_done.R3`。
+5. **R4 抽奖**：见 SS-5；完成（抽奖结算）标记 `stage_done.R4`。
+6. **每环节必记录**：用户参与的每个 R1~R4 环节均落 `participation_step_record`（+ checkin_day / exam / lottery_result 专表），可逐环节回溯。
+7. **D5 双指标 + 漏斗**（与大屏/记录口径统一）：
+   - **参与人数**：distinct 参与者中"已完成≥1 个活动方启用环节"（即至少完成 R1 或首个启用环节）→ 计入。这是**大屏实时数字**口径（保留 `RT.OnCheckin` 链路，触发点改为"首个启用环节完成"而非裸 checkin）。
+   - **完成人数**：distinct 参与者中"已完成全部启用环节"（`completed_all=true`）。
+   - **各环节漏斗**：`current_stage` 维护"当前所处环节"（最远到达且未进入下一启用环节者），活动方后台聚合 `GROUP BY current_stage` 得"处于 R1 x 人 / R2 y 人 / R3 / R4 / 已完成 z 人"；另提供累计"到达/完成 Ri 人数"。
+   - 计数/对账/SSE **保留** realtime 全链路与 10s PG 对账；对账 SQL 改为"参与人数"口径（满足≥1 启用环节完成的去重 participation）。`current_stage`/`completed_all` 由 step 完成时在同事务内推进，PG 为准。
 
 **接口**（`/api/v1/p`，参与者 JWT）
 
@@ -277,7 +295,7 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 
 **与现有代码**：`participation` refactor（鉴权源、门禁、上传、exam 取题判分、checkin 多日）；`flow` 提供门禁判定；`realtime` reuse；`repo` 加 checkin_day/exam 查询、data_field 写入；`storage` reuse。
 
-**决策与假设**：① "参与人数"口径=**完成 R1 全部签到门禁**的去重 participant（贴合"多天签到完成才进下一环节"，对账 SQL 改 distinct 满足门禁者）——若活动方要"首日即计数"为可调开关；② exam 不下发答案、服务端判分（防作弊）；③ 上传走后端中转入 storage（v1 简单可靠；预签名直传为后续优化）。①属口径决策，影响大屏数字，登记并默认按"门禁完成计数"，可与 codex/活动方复议。
+**决策与假设**：① 用户已确认 D5：参与人数=完成≥1启用环节的去重人，完成人数=完成全部启用环节，二者分开；活动方后台另看各环节漏斗（处于 R1/R2/R3/R4 人数）；② exam 不下发答案、服务端判分（防作弊）；③ 上传走后端中转入 storage（v1 简单可靠；预签名直传为后续优化）；④ 顺序门禁仅串"已启用"环节（活动方没配 R2 则 R1 完成后直接可进 R3）。
 
 ---
 
@@ -313,7 +331,7 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 ## SS-6 活动大屏实时服务
 
 **功能**（**大部分 reuse**）
-1. 实时参与人数：**保留** Redis `INCR` + pub/sub + 进程内 SSE Hub（≤2/s 节流）+ 10s PG 对账 + 重连即发快照。
+1. 实时**参与人数**（D5 口径=完成≥1 启用环节的去重人）：**保留** Redis `INCR` + pub/sub + 进程内 SSE Hub（≤2/s 节流）+ 10s PG 对账 + 重连即发快照；触发点接 SS-4「首个启用环节完成」。**完成人数**与**各环节漏斗**为活动方后台指标（SS-7），不在大屏实时链路（如需大屏展示完成数，作为 `milestone` 信封附带，低频）。
 2. SSE 负载升级为 typed 信封：`{type:"count",count,ts}` / `{type:"winner",name,prize,ts}` / `{type:"milestone",...}`（向后兼容：旧大屏只认 count 字段，保留顶层 `count`）。
 3. 中奖滚动：`win:{event}` capped LIST 提供最近 N 条；连接建立即发 count 快照 +（可选）最近中奖（transient，不持久回放）。
 4. 多大屏实例：**保留** Redis pub/sub 跨实例扇出。
@@ -337,7 +355,9 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 1. 活动方按活动看参与明细，字段**对齐原始需求**：记录ID(`participation.id`)、用户名(`whitelist.name`)、工号(`employee_number`)、手机号(脱敏显示/导出全号)、参与时间(首次/各步)、用户位置(`checkin_day`/`participation` geo)、**用户设备ID**(`participation.device_id`，导出可见)、**用户浏览器指纹**(`participant.fingerprint_hash`，导出可见)、**数据栏一**(`data_field_1` 文本)、**数据栏二**(`data_field_2` OSS 位置→签名链接)。受 `can_view_records` 控制；查看记 PII 审计。
 2. 导出：**保留** NATS→CSV→对象存储→签名下载（CSV BOM + 防公式注入 `csvSafe` **保留**）；列对齐上表 + 动态登记字段（**保留** form 键并集）；受 `can_export_records` 控制；导出记审计。
 3. 用户查本人记录：`GET /p/e/{id}/me/records`（参与者 JWT）→ 各 step 记录 + exam 成绩 + 抽奖结果。
-4. DB 导出属 SS-0（超管），与此分离。
+4. **D5 统计**：活动方后台看 参与人数 / 完成人数 / 各环节漏斗（处于 R1/R2/R3/R4/已完成 人数 + 累计到达·完成 Ri）。聚合自 `participation.current_stage`/`completed_all`（索引支撑，2万级低成本 `GROUP BY`）。
+5. **D3 告警列表**：活动方查看/导出 `participation_warning`（指纹不一致/顶号等），含工号·姓名·时间·类型·明细；受 `can_view_records`/`can_export_records` 控制。
+6. DB 导出属 SS-0（超管），与此分离。
 
 **接口**
 
@@ -345,6 +365,9 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 |---|---|---|
 | `GET /org/events/{id}/participants` | org | **refactor** 字段对齐 + 权限位 + 审计 |
 | `POST /org/events/{id}/export` `GET /org/exports/{job_id}[/download]` | org | **保留+refactor** 列对齐 + 权限位 |
+| `GET /org/events/{id}/stats` | org | **新增** 参与人数/完成人数/各环节漏斗 |
+| `GET /org/events/{id}/warnings` | org | **新增** 告警列表（D3） |
+| `POST /org/events/{id}/warnings/export` | org | **新增** 告警列表异步导出 |
 | `GET /p/e/{id}/me/records` | p | **新增** 本人记录 |
 
 **数据库**：0011（`participation.data_field_1/2,device_id`）。
@@ -359,7 +382,7 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 
 ## 5. 迁移序列（embedded migrator，单文件单事务，可重入）
 
-`0006` 平台基座 → `0007` 模板 → `0008` 参与者登录+多日签到 → `0009` 考试题库 → `0010` 抽奖+A/B → `0011` 记录字段。全部 `IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`/`ON CONFLICT`，对空表或既有数据均安全；生产若已有热数据，索引注释延续 0002 的 CONCURRENTLY 提示。
+`0006` 平台基座 → `0007` 模板 → `0008` 参与者登录+多日签到+活动时区/严格指纹/告警表 → `0009` 考试题库 → `0010` 抽奖+A/B → `0011` 记录字段+环节漏斗(current_stage/completed_all)。全部 `IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`/`ON CONFLICT`，对空表或既有数据均安全；生产若已有热数据，索引注释延续 0002 的 CONCURRENTLY 提示。
 
 ## 6. 决策与假设登记（汇总，均"可调"，标★为敏感/建议 codex 复议触发条件）
 
@@ -367,9 +390,9 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 |---|---|---|---|
 | D1 | 参与者非匿名，强身份登录 | 名单+四元组→JWT | — |
 | D2 | "用户ID"=名单条目，四元组=姓名+工号+全手机+活动ID | 全手机号匹配 | 活动方无全手机号数据时 |
-| D3★ | 指纹换设备不硬阻断 | 宽松，活动方可严格 | 客户合规要求强绑定 |
-| D4 | R1 days=去重日历日数，时区 Asia/Shanghai，仅配数量 | 不配具体日期 | 要求"指定日期签到" |
-| D5★ | 参与人数口径=完成 R1 门禁的去重人 | 门禁完成计数 | 活动方要首日即计数 |
+| D3 | **用户已定**：指纹不一致默认记告警入参与记录、活动方可导出告警列表；活动方可设严格阻断 | 告警+可导出，严格可选 | — |
+| D4 | **用户已定**：活动时区由活动方设定，默认 Asia/Shanghai；R1 仅配天数 | event.timezone | 要求"指定具体日期签到" |
+| D5 | **用户已定**：顺序门禁(已启用 R1→R2→R3→R4 须逐环节完成)；参与人数(完成≥1启用环节) 与 完成人数(完成全部) 分开；后台看各环节漏斗、每环节必记录 | 双指标+漏斗 | — |
 | D6 | exam 服务端判分、不下发答案、确定性随机题 | 防作弊 | — |
 | D7★ | A/B=内定名册必中+其余加权随机+全程审计 | 透明可追溯 | 要求双人复核/更强管控 |
 | D8 | 删除活动方=软删 | 数据留痕 | 要求硬删合规 |
