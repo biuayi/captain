@@ -69,17 +69,19 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Guard.Reset(ctx, scope, req.LoginName)
 	tok, _ := h.Sig.Sign(token.Claims{
-		Kind: token.KindAuth, Role: "organizer", Subject: c.ID,
+		Kind: token.KindAuth, Role: token.RoleOrganizer, Subject: c.ID,
+		Perm: c.Perms(), PermVersion: c.PermVersion,
 		ExpiresAt: time.Now().Add(12 * time.Hour).Unix(),
 	})
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"token": tok, "organizer": map[string]string{"id": c.ID, "name": c.Name}})
 }
 
-// auth returns the organizer id from the bearer token.
+// auth returns the organizer id from the claims stashed by the OrgPerm
+// middleware (which already verified token, role, perm and perm_version).
 func (h *Handler) auth(w http.ResponseWriter, r *http.Request) (string, bool) {
-	c, err := h.Sig.Verify(httpx.BearerToken(r), token.KindAuth)
-	if err != nil || c.Role != "organizer" {
+	c, ok := httpx.OrgClaims(r.Context())
+	if !ok {
 		httpx.Fail(w, http.StatusUnauthorized, "unauthorized", "需要活动方登录")
 		return "", false
 	}

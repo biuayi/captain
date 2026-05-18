@@ -18,6 +18,7 @@ import (
 	"github.com/hertz/captain/internal/httpx"
 	"github.com/hertz/captain/internal/loginguard"
 	"github.com/hertz/captain/internal/organizer"
+	"github.com/hertz/captain/internal/orgperm"
 	"github.com/hertz/captain/internal/participation"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
@@ -118,21 +119,28 @@ func run() error {
 	})
 
 	// organizer
+	// organizer routes (except login) go through OrgPerm middleware: it
+	// verifies the JWT, enforces the per-route permission and rejects a
+	// stale perm snapshot (SS0-09). Handlers read httpx.OrgClaims.
+	orgpc := orgperm.New(st.Redis)
+	op := func(perm string, h http.HandlerFunc) http.Handler {
+		return httpx.OrgPerm(sig, orgpc, r.OrganizerPermVersion, perm)(h)
+	}
 	mux.HandleFunc("POST /api/v1/org/login", og.Login)
-	mux.HandleFunc("GET /api/v1/org/events", og.Events)
-	mux.HandleFunc("POST /api/v1/org/flows", og.CreateFlow)
-	mux.HandleFunc("GET /api/v1/org/flows", og.ListFlows)
-	mux.HandleFunc("POST /api/v1/org/events", og.CreateEvent)
-	mux.HandleFunc("PUT /api/v1/org/events/{id}", og.UpdateEvent)
-	mux.HandleFunc("POST /api/v1/org/events/{id}/status", og.SetEventStatus)
-	mux.HandleFunc("GET /api/v1/org/events/{id}", og.Event)
-	mux.HandleFunc("GET /api/v1/org/events/{id}/participants", og.Participants)
-	mux.HandleFunc("GET /api/v1/org/events/{id}/entry", og.EntryLink)
-	mux.HandleFunc("POST /api/v1/org/events/{id}/whitelist/import", og.ImportWhitelist)
-	mux.HandleFunc("GET /api/v1/org/events/{id}/whitelist", og.ListWhitelist)
-	mux.HandleFunc("POST /api/v1/org/events/{id}/export", og.CreateExport)
-	mux.HandleFunc("GET /api/v1/org/exports/{job_id}", og.ExportStatus)
-	mux.HandleFunc("GET /api/v1/org/exports/{job_id}/download", og.ExportDownload)
+	mux.Handle("GET /api/v1/org/events", op("", og.Events))
+	mux.Handle("POST /api/v1/org/flows", op("can_create_event", og.CreateFlow))
+	mux.Handle("GET /api/v1/org/flows", op("", og.ListFlows))
+	mux.Handle("POST /api/v1/org/events", op("can_create_event", og.CreateEvent))
+	mux.Handle("PUT /api/v1/org/events/{id}", op("can_create_event", og.UpdateEvent))
+	mux.Handle("POST /api/v1/org/events/{id}/status", op("can_create_event", og.SetEventStatus))
+	mux.Handle("GET /api/v1/org/events/{id}", op("", og.Event))
+	mux.Handle("GET /api/v1/org/events/{id}/participants", op("can_view_records", og.Participants))
+	mux.Handle("GET /api/v1/org/events/{id}/entry", op("", og.EntryLink))
+	mux.Handle("POST /api/v1/org/events/{id}/whitelist/import", op("can_create_event", og.ImportWhitelist))
+	mux.Handle("GET /api/v1/org/events/{id}/whitelist", op("", og.ListWhitelist))
+	mux.Handle("POST /api/v1/org/events/{id}/export", op("can_export_records", og.CreateExport))
+	mux.Handle("GET /api/v1/org/exports/{job_id}", op("", og.ExportStatus))
+	mux.Handle("GET /api/v1/org/exports/{job_id}/download", op("can_export_records", og.ExportDownload))
 
 	// admin (super-admin, separate auth domain) — path obfuscated by
 	// CAPTAIN_ADMIN_PATH (T-083); the obvious /admin is intentionally
