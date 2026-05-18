@@ -4,11 +4,25 @@ package domain
 import "time"
 
 type Organizer struct {
-	ID        string
-	Name      string
-	LoginName string
-	Status    string
-	CreatedAt time.Time
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	LoginName        string     `json:"login_name"`
+	Status           string     `json:"status"`
+	CanCreateEvent   bool       `json:"can_create_event"`
+	CanViewRecords   bool       `json:"can_view_records"`
+	CanExportRecords bool       `json:"can_export_records"`
+	PermVersion      int        `json:"perm_version"`
+	CreatedAt        time.Time  `json:"created_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
+}
+
+// Perms returns the permission snapshot embedded in an organizer JWT.
+func (o Organizer) Perms() map[string]bool {
+	return map[string]bool{
+		"can_create_event":   o.CanCreateEvent,
+		"can_view_records":   o.CanViewRecords,
+		"can_export_records": o.CanExportRecords,
+	}
 }
 
 type AdminUser struct {

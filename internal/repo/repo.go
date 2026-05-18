@@ -27,13 +27,32 @@ type Cred struct {
 	PasswordHash string
 	Status       string
 	Name         string
+	// organizer-only permission snapshot (for JWT embed, SS0-08)
+	CanCreateEvent   bool
+	CanViewRecords   bool
+	CanExportRecords bool
+	PermVersion      int
 }
 
+// Perms maps the snapshot to the JWT perm map.
+func (c Cred) Perms() map[string]bool {
+	return map[string]bool{
+		"can_create_event":   c.CanCreateEvent,
+		"can_view_records":   c.CanViewRecords,
+		"can_export_records": c.CanExportRecords,
+	}
+}
+
+// OrganizerByLogin returns active (non-soft-deleted) organizer credentials
+// plus the permission snapshot.
 func (r *Repo) OrganizerByLogin(ctx context.Context, login string) (Cred, error) {
 	var c Cred
 	err := r.pg.QueryRow(ctx,
-		`SELECT id, password_hash, status, name FROM organizer WHERE login_name=$1`, login,
-	).Scan(&c.ID, &c.PasswordHash, &c.Status, &c.Name)
+		`SELECT id, password_hash, status, name,
+		        can_create_event, can_view_records, can_export_records, perm_version
+		   FROM organizer WHERE login_name=$1 AND deleted_at IS NULL`, login,
+	).Scan(&c.ID, &c.PasswordHash, &c.Status, &c.Name,
+		&c.CanCreateEvent, &c.CanViewRecords, &c.CanExportRecords, &c.PermVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, ErrNotFound
 	}
@@ -53,9 +72,13 @@ func (r *Repo) AdminByLogin(ctx context.Context, login string) (Cred, error) {
 
 // ---- admin: organizer management ----
 
+// ListOrganizers returns non-soft-deleted organizers with permission bits.
 func (r *Repo) ListOrganizers(ctx context.Context) ([]domain.Organizer, error) {
 	rows, err := r.pg.Query(ctx,
-		`SELECT id, name, login_name, status, created_at FROM organizer ORDER BY created_at DESC`)
+		`SELECT id, name, login_name, status,
+		        can_create_event, can_view_records, can_export_records,
+		        perm_version, created_at
+		   FROM organizer WHERE deleted_at IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +86,9 @@ func (r *Repo) ListOrganizers(ctx context.Context) ([]domain.Organizer, error) {
 	var out []domain.Organizer
 	for rows.Next() {
 		var o domain.Organizer
-		if err := rows.Scan(&o.ID, &o.Name, &o.LoginName, &o.Status, &o.CreatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.LoginName, &o.Status,
+			&o.CanCreateEvent, &o.CanViewRecords, &o.CanExportRecords,
+			&o.PermVersion, &o.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, o)
@@ -88,6 +113,65 @@ func (r *Repo) SetOrganizerStatus(ctx context.Context, id, status string) error 
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SoftDeleteOrganizer marks the organizer deleted (data retained) and disables
+// it so it can no longer log in (SS0-02). Idempotent.
+func (r *Repo) SoftDeleteOrganizer(ctx context.Context, id string) error {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE organizer SET deleted_at=now(), status='disabled'
+		  WHERE id=$1 AND deleted_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ResetOrganizerPassword sets a new bcrypt hash (SS0-04).
+func (r *Repo) ResetOrganizerPassword(ctx context.Context, id, passwordHash string) error {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE organizer SET password_hash=$2 WHERE id=$1 AND deleted_at IS NULL`,
+		id, passwordHash)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetOrganizerPermissions updates the three permission bits and bumps
+// perm_version so existing JWT snapshots are invalidated (SS0-06). Returns the
+// new perm_version.
+func (r *Repo) SetOrganizerPermissions(ctx context.Context, id string, canCreate, canView, canExport bool) (int, error) {
+	var pv int
+	err := r.pg.QueryRow(ctx,
+		`UPDATE organizer
+		    SET can_create_event=$2, can_view_records=$3, can_export_records=$4,
+		        perm_version=perm_version+1
+		  WHERE id=$1 AND deleted_at IS NULL
+		  RETURNING perm_version`,
+		id, canCreate, canView, canExport).Scan(&pv)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return pv, err
+}
+
+// OrganizerPermVersion returns the authoritative perm_version (PG truth used
+// by the OrgPerm middleware fallback, P0-14).
+func (r *Repo) OrganizerPermVersion(ctx context.Context, id string) (int, error) {
+	var pv int
+	err := r.pg.QueryRow(ctx,
+		`SELECT perm_version FROM organizer WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&pv)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return pv, err
 }
 
 // ---- event / flow ----
