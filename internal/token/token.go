@@ -10,6 +10,7 @@ package token
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -42,8 +43,9 @@ type Claims struct {
 	Kind       string `json:"k"`
 	Subject    string `json:"sub,omitempty"` // organizer/admin id, or device hash
 	EventID    string `json:"eid,omitempty"`
-	Role       string `json:"role,omitempty"` // organizer | admin
+	Role       string `json:"role,omitempty"` // organizer | admin | participant
 	DeviceHash string `json:"dh,omitempty"`
+	JTI        string `json:"jti,omitempty"`
 	IssuedAt   int64  `json:"iat"`
 	NotBefore  int64  `json:"nbf,omitempty"`
 	ExpiresAt  int64  `json:"exp"`
@@ -68,6 +70,13 @@ func (s *Signer) sign(payload []byte) string {
 func (s *Signer) Sign(c Claims) (string, error) {
 	if c.IssuedAt == 0 {
 		c.IssuedAt = time.Now().Unix()
+	}
+	if c.JTI == "" {
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		c.JTI = base64.RawURLEncoding.EncodeToString(buf)
 	}
 	raw, err := json.Marshal(c)
 	if err != nil {
