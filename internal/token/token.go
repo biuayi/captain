@@ -45,8 +45,10 @@ type Claims struct {
 	EventID    string `json:"eid,omitempty"`
 	Role       string `json:"role,omitempty"` // organizer | admin | participant
 	DeviceHash string `json:"dh,omitempty"`
-	JTI        string `json:"jti,omitempty"`
-	IssuedAt   int64  `json:"iat"`
+	JTI         string          `json:"jti,omitempty"`
+	Perm        map[string]bool `json:"perm,omitempty"`
+	PermVersion int             `json:"pv,omitempty"`
+	IssuedAt    int64           `json:"iat"`
 	NotBefore  int64  `json:"nbf,omitempty"`
 	ExpiresAt  int64  `json:"exp"`
 }

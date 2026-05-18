@@ -99,6 +99,37 @@ func TestJTIExplicitPreserved(t *testing.T) {
 	}
 }
 
+func TestPermRoundTrip(t *testing.T) {
+	s := New("secret-e")
+	perm := map[string]bool{"can_create_event": true, "can_export_records": false}
+	tok, err := s.Sign(Claims{
+		Kind:        KindAuth,
+		Role:        RoleOrganizer,
+		Perm:        perm,
+		PermVersion: 7,
+		ExpiresAt:   time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Verify(tok, KindAuth)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if c.PermVersion != 7 {
+		t.Fatalf("PermVersion = %d, want 7", c.PermVersion)
+	}
+	if len(c.Perm) != 2 {
+		t.Fatalf("Perm len = %d, want 2", len(c.Perm))
+	}
+	if !c.Perm["can_create_event"] {
+		t.Fatal("can_create_event should be true")
+	}
+	if c.Perm["can_export_records"] {
+		t.Fatal("can_export_records should be false")
+	}
+}
+
 func TestTamperAndWrongSecret(t *testing.T) {
 	s := New("right")
 	tok, _ := s.Sign(Claims{Kind: KindEvent, ExpiresAt: time.Now().Add(time.Hour).Unix()})
