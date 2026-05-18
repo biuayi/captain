@@ -156,7 +156,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpx.Recover(httpx.AccessLog(mux)),
+		Handler:           httpx.RequestID(httpx.Recover(httpx.AccessLog(mux))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
