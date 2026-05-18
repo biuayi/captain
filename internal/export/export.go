@@ -82,6 +82,9 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 	if kind == "lottery_audit" {
 		return w.processLotteryAudit(ctx, jobID)
 	}
+	if kind == "warnings" {
+		return w.processWarnings(ctx, jobID)
+	}
 
 	eventID, _, err := w.repo.ExportJobBare(ctx, jobID)
 	if err != nil {
@@ -113,9 +116,11 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM so Excel reads Chinese correctly
 	cw := csv.NewWriter(&buf)
-	header := []string{"participant_id", "identity_type", "identity_value",
-		"status", "last_step", "checkin_at", "first_seen_at",
-		"checkin_lat", "checkin_lng", "checkin_accuracy"}
+	// DESIGN §SS-7 record fields. Phone full是导出可见（列表脱敏）。
+	header := []string{"记录ID", "用户名", "工号", "企业名", "手机后4位", "手机号",
+		"参与时间", "当前环节", "完成全部", "签到时间",
+		"位置纬度", "位置经度", "位置精度", "设备ID", "浏览器指纹",
+		"数据栏一", "数据栏二", "状态", "最后步骤"}
 	for _, k := range formKeys {
 		header = append(header, "登记_"+k)
 	}
@@ -131,10 +136,17 @@ func (w *Worker) process(ctx context.Context, jobID string) error {
 			}
 			return fmt.Sprintf("%v", *f)
 		}
+		completed := ""
+		if r.CompletedAll {
+			completed = "是"
+		}
 		rec := []string{
-			r.ParticipantID, r.IdentityType, csvSafe(r.IdentityValue),
-			r.Status, r.LastStep, checkin, r.FirstSeenAt.Format(time.RFC3339),
+			r.ParticipationID, csvSafe(r.Name), csvSafe(r.EmployeeNumber),
+			csvSafe(r.Company), r.PhoneLast4, csvSafe(r.PhoneNumber),
+			r.FirstSeenAt.Format(time.RFC3339), r.CurrentStage, completed, checkin,
 			geo(r.Lat), geo(r.Lng), geo(r.Accuracy),
+			csvSafe(r.DeviceID), csvSafe(r.Fingerprint),
+			csvSafe(r.DataField1), csvSafe(r.DataField2), r.Status, r.LastStep,
 		}
 		for _, k := range formKeys {
 			rec = append(rec, csvSafe(fmt.Sprintf("%v", r.Form[k])))
@@ -176,6 +188,47 @@ func csvSafe(s string) string {
 
 func (w *Worker) fail(ctx context.Context, jobID string, e error) {
 	_ = w.repo.FinishExportJob(ctx, jobID, "failed", "", e.Error())
+}
+
+// processWarnings exports the event's D3 warning list to CSV (SS7-08).
+func (w *Worker) processWarnings(ctx context.Context, jobID string) error {
+	eventID, _, err := w.repo.ExportJobBare(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if err := w.repo.SetExportRunning(ctx, jobID); err != nil {
+		return err
+	}
+	rows, err := w.repo.ListWarnings(ctx, eventID)
+	if err != nil {
+		w.fail(ctx, jobID, err)
+		return nil
+	}
+	var buf bytes.Buffer
+	buf.WriteString("\xEF\xBB\xBF")
+	cw := csv.NewWriter(&buf)
+	_ = cw.Write([]string{"类型", "明细", "时间"})
+	for _, a := range rows {
+		dj, _ := json.Marshal(a.Detail)
+		_ = cw.Write([]string{a.Kind, csvSafe(string(dj)), a.CreatedAt.Format(time.RFC3339)})
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
+		w.fail(ctx, jobID, err)
+		return nil
+	}
+	key := "exports/" + jobID + ".csv"
+	if _, err := w.st.Put(key, &buf); err != nil {
+		w.fail(ctx, jobID, err)
+		return nil
+	}
+	if err := w.repo.FinishExportJob(ctx, jobID, "done", key, ""); err != nil {
+		return err
+	}
+	b, _ := json.Marshal(map[string]string{"job_id": jobID, "status": "done"})
+	_, _ = w.js.Publish(ctx, SubjectCompleted, b)
+	log.Printf("export: warnings %s done (%d rows) -> %s", jobID, len(rows), key)
+	return nil
 }
 
 // processLotteryAudit writes every draw of the event's lottery steps to a

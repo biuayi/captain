@@ -96,6 +96,22 @@ func (h *Handler) Draw(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, res)
 }
 
+// MyRecords: GET /api/v1/p/e/{event_id}/me/records — the participant's own
+// step records + exam/lottery outcomes (SS7-09).
+func (h *Handler) MyRecords(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("event_id")
+	claims, ok := h.participantAuth(w, r, eventID)
+	if !ok {
+		return
+	}
+	rec, err := h.Repo.MyRecords(r.Context(), eventID, claims.Subject)
+	if err != nil {
+		httpx.Fail(w, http.StatusNotFound, "no_records", "暂无记录")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, rec)
+}
+
 // DrawResult: GET /api/v1/p/e/{event_id}/steps/{step_id}/result (SS5-06).
 func (h *Handler) DrawResult(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("event_id")

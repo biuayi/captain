@@ -158,7 +158,22 @@ func (h *Handler) Participants(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
 		return
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"participants": rows, "total": len(rows)})
+	// list view masks the full phone (export keeps it; DESIGN §SS-7).
+	out := make([]map[string]any, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, map[string]any{
+			"record_id": p.ParticipationID, "name": p.Name,
+			"employee_number": p.EmployeeNumber, "company": p.Company,
+			"phone":         maskPhone(p.PhoneNumber, p.PhoneLast4),
+			"first_seen_at": p.FirstSeenAt, "checkin_at": p.CheckinAt,
+			"current_stage": p.CurrentStage, "completed_all": p.CompletedAll,
+			"lat": p.Lat, "lng": p.Lng, "accuracy": p.Accuracy,
+			"data_field_1": p.DataField1, "data_field_2": p.DataField2,
+			"status": p.Status, "form": p.Form,
+		})
+	}
+	h.orgAudit(r, orgID, "records_view", ev.ID, map[string]any{"count": len(out)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"participants": out, "total": len(out)})
 }
 
 // ---- T-021: 流程编排 / 活动 CRUD ----

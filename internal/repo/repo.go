@@ -410,31 +410,51 @@ func (r *Repo) ActiveEventIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
+// ParticipantRow is the activity-record shape (DESIGN §SS-7). The whitelist
+// columns (name/company/employee/phone) are LEFT-joined; phone full is
+// export-only, masked in the list view by the handler.
 type ParticipantRow struct {
-	ParticipantID string
-	IdentityType  string
-	IdentityValue string
-	Profile       map[string]any
-	Form          map[string]any // 最近一次 form step 采集的登记信息（动态字段）
-	Lat           *float64
-	Lng           *float64
-	Accuracy      *float64
-	CheckinAt     *time.Time
-	Status        string
-	LastStep      string
-	FirstSeenAt   time.Time
+	ParticipantID   string
+	ParticipationID string
+	IdentityType    string
+	IdentityValue   string
+	Name            string
+	Company         string
+	EmployeeNumber  string
+	PhoneLast4      string
+	PhoneNumber     string
+	Fingerprint     string
+	DeviceID        string
+	DataField1      string
+	DataField2      string
+	CurrentStage    string
+	CompletedAll    bool
+	Profile         map[string]any
+	Form            map[string]any // latest form step payload (dynamic columns)
+	Lat             *float64
+	Lng             *float64
+	Accuracy        *float64
+	CheckinAt       *time.Time
+	Status          string
+	LastStep        string
+	FirstSeenAt     time.Time
 }
 
 func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]ParticipantRow, error) {
-	// 登记信息存在 participation_step_record(step_type='form')，取最近一条；
-	// 这样活动方修改采集字段后，列表/导出自动反映实际采集内容。
 	rows, err := r.pg.Query(ctx,
-		`SELECT p.id, p.identity_type, COALESCE(p.identity_value,''), p.profile,
+		`SELECT p.id, pt.id, p.identity_type, COALESCE(p.identity_value,''),
+		        COALESCE(w.name,''), COALESCE(w.company,''),
+		        COALESCE(w.employee_number,''), COALESCE(w.phone_last4,''),
+		        COALESCE(w.phone_number,''), COALESCE(p.fingerprint_hash,''),
+		        COALESCE(pt.device_id,''), COALESCE(pt.data_field_1,''),
+		        COALESCE(pt.data_field_2,''), COALESCE(pt.current_stage,''),
+		        pt.completed_all, p.profile,
 		        pt.checkin_at, pt.status, COALESCE(pt.last_step_id,''), p.first_seen_at,
 		        COALESCE(f.payload,'{}'::jsonb),
 		        pt.checkin_lat, pt.checkin_lng, pt.checkin_accuracy
 		 FROM participant p
 		 JOIN participation pt ON pt.participant_id = p.id
+		 LEFT JOIN event_whitelist_entry w ON w.id = p.whitelist_entry_id
 		 LEFT JOIN LATERAL (
 		   SELECT payload FROM participation_step_record sr
 		   WHERE sr.participation_id = pt.id AND sr.step_type='form'
@@ -450,14 +470,97 @@ func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]Particip
 	for rows.Next() {
 		var pr ParticipantRow
 		var prof, form []byte
-		if err := rows.Scan(&pr.ParticipantID, &pr.IdentityType, &pr.IdentityValue,
-			&prof, &pr.CheckinAt, &pr.Status, &pr.LastStep, &pr.FirstSeenAt, &form,
+		if err := rows.Scan(&pr.ParticipantID, &pr.ParticipationID, &pr.IdentityType,
+			&pr.IdentityValue, &pr.Name, &pr.Company, &pr.EmployeeNumber, &pr.PhoneLast4,
+			&pr.PhoneNumber, &pr.Fingerprint, &pr.DeviceID, &pr.DataField1, &pr.DataField2,
+			&pr.CurrentStage, &pr.CompletedAll, &prof,
+			&pr.CheckinAt, &pr.Status, &pr.LastStep, &pr.FirstSeenAt, &form,
 			&pr.Lat, &pr.Lng, &pr.Accuracy); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(prof, &pr.Profile)
 		_ = json.Unmarshal(form, &pr.Form)
 		out = append(out, pr)
+	}
+	return out, rows.Err()
+}
+
+// MyRecords returns one participant's own per-step records + exam/lottery
+// outcomes (SS7-09).
+func (r *Repo) MyRecords(ctx context.Context, eventID, participantID string) (map[string]any, error) {
+	var partID string
+	err := r.pg.QueryRow(ctx,
+		`SELECT id FROM participation WHERE event_id=$1 AND participant_id=$2`,
+		eventID, participantID).Scan(&partID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.pg.Query(ctx,
+		`SELECT step_id, step_type, payload, occurred_at
+		   FROM participation_step_record WHERE participation_id=$1
+		  ORDER BY occurred_at`, partID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	steps := []map[string]any{}
+	for rows.Next() {
+		var sid, stype string
+		var pl []byte
+		var at time.Time
+		if err := rows.Scan(&sid, &stype, &pl, &at); err != nil {
+			return nil, err
+		}
+		var pm map[string]any
+		_ = json.Unmarshal(pl, &pm)
+		steps = append(steps, map[string]any{"step_id": sid, "type": stype, "payload": pm, "at": at})
+	}
+	out := map[string]any{"steps": steps}
+	var rb, pc *string
+	if e := r.pg.QueryRow(ctx,
+		`SELECT lr.resolved_by, pz.code FROM lottery_result lr
+		   LEFT JOIN lottery_prize pz ON pz.id=lr.prize_id
+		  WHERE lr.event_id=$1 AND lr.participant_id=$2 LIMIT 1`,
+		eventID, participantID).Scan(&rb, &pc); e == nil {
+		lr := map[string]any{}
+		if rb != nil {
+			lr["resolved_by"] = *rb
+		}
+		if pc != nil {
+			lr["prize_code"] = *pc
+		}
+		out["lottery"] = lr
+	}
+	return out, rows.Err()
+}
+
+// ListWarnings returns D3 warnings for an event (SS7-07).
+type WarningRow struct {
+	Kind      string         `json:"kind"`
+	Detail    map[string]any `json:"detail"`
+	CreatedAt time.Time      `json:"created_at"`
+}
+
+func (r *Repo) ListWarnings(ctx context.Context, eventID string) ([]WarningRow, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT kind, detail, created_at FROM participation_warning
+		  WHERE event_id=$1 ORDER BY created_at DESC LIMIT 1000`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WarningRow
+	for rows.Next() {
+		var wr WarningRow
+		var d []byte
+		if err := rows.Scan(&wr.Kind, &d, &wr.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(d, &wr.Detail)
+		out = append(out, wr)
 	}
 	return out, rows.Err()
 }

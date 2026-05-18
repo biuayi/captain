@@ -260,6 +260,84 @@ func (h *Handler) LotterySummary(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, sum)
 }
 
+// maskPhone renders a privacy-safe phone for list views (DESIGN §SS-7).
+func maskPhone(full, last4 string) string {
+	if full == "" {
+		if last4 != "" {
+			return "****" + last4
+		}
+		return ""
+	}
+	if len(full) <= 4 {
+		return "****"
+	}
+	head := full[:len(full)-len(full)/2]
+	if len(head) > 3 {
+		head = head[:3]
+	}
+	return head + "****" + full[len(full)-4:]
+}
+
+// Stats: GET /org/events/{id}/stats — D5 participated/completed + funnel.
+func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	evID, ok := h.ownedEvent(w, r, orgID)
+	if !ok {
+		return
+	}
+	fn, err := h.Repo.EventFunnel(r.Context(), evID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, fn)
+}
+
+// Warnings: GET /org/events/{id}/warnings — D3 warning list.
+func (h *Handler) Warnings(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	evID, ok := h.ownedEvent(w, r, orgID)
+	if !ok {
+		return
+	}
+	ws, err := h.Repo.ListWarnings(r.Context(), evID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
+		return
+	}
+	h.orgAudit(r, orgID, "warnings_view", evID, map[string]any{"count": len(ws)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"warnings": ws, "total": len(ws)})
+}
+
+// WarningsExport: POST /org/events/{id}/warnings/export (SS7-08).
+func (h *Handler) WarningsExport(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	evID, ok := h.ownedEvent(w, r, orgID)
+	if !ok {
+		return
+	}
+	jobID, err := h.Repo.CreateExportJobKind(r.Context(), orgID, evID, "warnings")
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "create job failed")
+		return
+	}
+	if err := h.Export.Request(r.Context(), jobID); err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "mq", "enqueue failed")
+		return
+	}
+	h.orgAudit(r, orgID, "warnings_export", evID, map[string]any{"job": jobID})
+	httpx.JSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "pending"})
+}
+
 // LotteryAuditExport: POST /org/events/{id}/lottery/audit/export — async
 // CSV of every draw → object storage, downloadable via /org/exports/{job}
 // (SS5-10). Reuses the export job pipeline (kind=lottery_audit).
