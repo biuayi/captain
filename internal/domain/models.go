@@ -16,6 +16,28 @@ type Organizer struct {
 	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
 
+type Template struct {
+	ID          string         `json:"id"`
+	Kind        string         `json:"kind"` // screen | flow_page
+	Code        string         `json:"code"`
+	Name        string         `json:"name"`
+	Version     int            `json:"version"`
+	Status      string         `json:"status"` // draft | published | disabled
+	OrganizerID string         `json:"organizer_id,omitempty"`
+	Manifest    map[string]any `json:"manifest"`
+	CreatedAt   time.Time      `json:"created_at"`
+}
+
+type TemplateAsset struct {
+	ID         string    `json:"id"`
+	TemplateID string    `json:"template_id"`
+	StorageKey string    `json:"storage_key"`
+	Mime       string    `json:"mime"`
+	Size       int64     `json:"size"`
+	Role       string    `json:"role"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // Perms returns the permission snapshot embedded in an organizer JWT.
 func (o Organizer) Perms() map[string]bool {
 	return map[string]bool{

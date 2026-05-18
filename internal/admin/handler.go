@@ -4,7 +4,9 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/hertz/captain/internal/orgperm"
 	"github.com/hertz/captain/internal/platformcfg"
 	"github.com/hertz/captain/internal/repo"
+	"github.com/hertz/captain/internal/storage"
+	"github.com/hertz/captain/internal/templatecache"
 	"github.com/hertz/captain/internal/token"
 	"github.com/hertz/captain/internal/turnstile"
 	"golang.org/x/crypto/bcrypt"
@@ -28,6 +32,15 @@ type Handler struct {
 	PC     *platformcfg.Manager
 	OrgPC  *orgperm.Cache
 	Export *export.Worker
+	Store  storage.Storage
+	TplC   *templatecache.Cache
+}
+
+// assetMIMEAllow is the upload MIME whitelist (no executables; DESIGN §SS-1).
+var assetMIMEAllow = map[string]bool{
+	"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true,
+	"image/svg+xml": true, "font/woff2": true, "font/woff": true,
+	"application/json": true, "text/css": true,
 }
 
 // ConfigKeys are the platform secret slots a super-admin can set (DESIGN §3.3).
@@ -270,14 +283,7 @@ func (h *Handler) PutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := r.PathValue("key")
-	known := false
-	for _, k := range ConfigKeys {
-		if k == key {
-			known = true
-			break
-		}
-	}
-	if !known {
+	if !slices.Contains(ConfigKeys, key) {
 		httpx.Fail(w, http.StatusBadRequest, "bad_key", "未知配置项")
 		return
 	}
@@ -355,4 +361,141 @@ func (h *Handler) DBExportStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, job)
+}
+
+// ---- SS-1: template registry ----
+
+// ListTemplates: GET /templates?kind= (SS1-05).
+func (h *Handler) ListTemplates(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.auth(w, r); !ok {
+		return
+	}
+	ts, err := h.Repo.ListTemplates(r.Context(), r.URL.Query().Get("kind"))
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"templates": ts})
+}
+
+type createTplReq struct {
+	Kind        string         `json:"kind"`
+	Code        string         `json:"code"`
+	Name        string         `json:"name"`
+	Version     int            `json:"version"`
+	OrganizerID string         `json:"organizer_id"`
+	Manifest    map[string]any `json:"manifest"`
+}
+
+// CreateTemplate: POST /templates (SS1-05).
+func (h *Handler) CreateTemplate(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	var req createTplReq
+	if err := httpx.DecodeJSON(r, &req); err != nil ||
+		(req.Kind != "screen" && req.Kind != "flow_page") || req.Code == "" || req.Name == "" {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "kind(screen|flow_page)/code/name 必填")
+		return
+	}
+	if req.Version <= 0 {
+		req.Version = 1
+	}
+	var org *string
+	if req.OrganizerID != "" {
+		org = &req.OrganizerID
+	}
+	man, _ := json.Marshal(req.Manifest)
+	id, err := h.Repo.CreateTemplate(r.Context(), req.Kind, req.Code, req.Name, req.Version, org, man)
+	if err != nil {
+		httpx.Fail(w, http.StatusConflict, "conflict", "code+version 已存在或创建失败")
+		return
+	}
+	h.TplC.Invalidate(r.Context())
+	h.audit(r, adminID, "template_create", id, map[string]any{"kind": req.Kind, "code": req.Code})
+	httpx.JSON(w, http.StatusCreated, map[string]string{"id": id})
+}
+
+type tplStatusReq struct {
+	Status string `json:"status"`
+}
+
+// UpdateTemplate: PUT /templates/{id} {status} (publish/disable) (SS1-05).
+func (h *Handler) UpdateTemplate(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	var req tplStatusReq
+	if err := httpx.DecodeJSON(r, &req); err != nil ||
+		(req.Status != "draft" && req.Status != "published" && req.Status != "disabled") {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "status 须为 draft|published|disabled")
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.Repo.UpdateTemplateStatus(r.Context(), id, req.Status); err != nil {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "模板不存在")
+		return
+	}
+	h.TplC.Invalidate(r.Context())
+	h.audit(r, adminID, "template_status", id, map[string]any{"status": req.Status})
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": req.Status})
+}
+
+// DeleteTemplate: DELETE /templates/{id} — soft (status=disabled) (SS1-05).
+func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.Repo.UpdateTemplateStatus(r.Context(), id, "disabled"); err != nil {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "模板不存在")
+		return
+	}
+	h.TplC.Invalidate(r.Context())
+	h.audit(r, adminID, "template_delete", id, nil)
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+}
+
+// UploadTemplateAsset: POST /templates/{id}/assets (multipart, MIME
+// whitelist) → object storage (SS1-06).
+func (h *Handler) UploadTemplateAsset(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	tplID := r.PathValue("id")
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "需 multipart 上传")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "bad_request", "缺少 file 字段")
+		return
+	}
+	defer file.Close()
+	mimeType := hdr.Header.Get("Content-Type")
+	if !assetMIMEAllow[mimeType] {
+		httpx.Fail(w, http.StatusUnsupportedMediaType, "bad_mime", "不支持的文件类型: "+mimeType)
+		return
+	}
+	role := r.FormValue("role")
+	if role == "" {
+		role = "asset"
+	}
+	key := "templates/" + tplID + "/" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + hdr.Filename
+	if _, err := h.Store.Put(key, file); err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "storage", "存储失败")
+		return
+	}
+	id, err := h.Repo.AddTemplateAsset(r.Context(), tplID, key, mimeType, role, hdr.Size)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "记录失败")
+		return
+	}
+	h.audit(r, adminID, "template_asset_upload", tplID, map[string]any{"asset": id, "mime": mimeType})
+	httpx.JSON(w, http.StatusCreated, map[string]string{"id": id, "storage_key": key})
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Storage interface {
@@ -15,6 +16,10 @@ type Storage interface {
 	Put(key string, r io.Reader) (string, error)
 	// Open returns a reader for a previously stored key.
 	Open(key string) (io.ReadCloser, error)
+	// SignedURL returns a time-limited read URL. The aliyun driver returns a
+	// real OSS-signed URL; the local driver returns a proxy path served by
+	// the app (no public object store) (DESIGN §SS-1, SS1-03).
+	SignedURL(key string, ttl time.Duration) (string, error)
 }
 
 type Options struct {
@@ -62,4 +67,10 @@ func (l *localFS) Put(key string, r io.Reader) (string, error) {
 
 func (l *localFS) Open(key string) (io.ReadCloser, error) {
 	return os.Open(l.path(key))
+}
+
+// SignedURL for local FS returns an app-proxied download path (no public
+// object store); the caller mounts /dl/ to stream via Open.
+func (l *localFS) SignedURL(key string, _ time.Duration) (string, error) {
+	return "/dl/" + key, nil
 }

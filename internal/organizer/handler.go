@@ -19,6 +19,7 @@ import (
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/storage"
+	"github.com/hertz/captain/internal/templatecache"
 	"github.com/hertz/captain/internal/token"
 	"github.com/hertz/captain/internal/turnstile"
 	"golang.org/x/crypto/bcrypt"
@@ -33,6 +34,28 @@ type Handler struct {
 	BaseURL string
 	Guard   *loginguard.Guard
 	TS      *turnstile.Verifier
+	TplC    *templatecache.Cache
+}
+
+// Templates: GET /org/templates?kind= — published templates visible to this
+// organizer (globals + own customs), short-TTL cached (SS1-07/09).
+func (h *Handler) Templates(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	kind := r.URL.Query().Get("kind")
+	if ts, hit := h.TplC.Get(r.Context(), kind, orgID); hit {
+		httpx.JSON(w, http.StatusOK, map[string]any{"templates": ts, "cached": true})
+		return
+	}
+	ts, err := h.Repo.ListTemplatesForOrganizer(r.Context(), kind, orgID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
+		return
+	}
+	h.TplC.Set(r.Context(), kind, orgID, ts)
+	httpx.JSON(w, http.StatusOK, map[string]any{"templates": ts})
 }
 
 type loginReq struct {
@@ -212,6 +235,13 @@ func (h *Handler) parseEvent(w http.ResponseWriter, r *http.Request, orgID strin
 	}
 	if req.ScreenTemplateCode == "" {
 		req.ScreenTemplateCode = "ink-wash-default"
+	}
+	// SS1-08: enforce a registered screen template only once the registry has
+	// published screen templates for this org (permissive during bootstrap).
+	if h.Repo.AnyTemplatePublished(r.Context(), "screen", orgID) &&
+		!h.Repo.TemplateCodeAllowed(r.Context(), "screen", req.ScreenTemplateCode, orgID) {
+		httpx.Fail(w, http.StatusBadRequest, "bad_template", "screen_template_code 非可用模板")
+		return req, time.Time{}, time.Time{}, false
 	}
 	return req, st, en, true
 }

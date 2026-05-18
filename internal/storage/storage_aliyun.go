@@ -2,6 +2,7 @@ package storage
 
 import (
 	"io"
+	"time"
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 )
@@ -31,4 +32,13 @@ func (a *aliyunOSS) Put(key string, r io.Reader) (string, error) {
 
 func (a *aliyunOSS) Open(key string) (io.ReadCloser, error) {
 	return a.bucket.GetObject(key)
+}
+
+// SignedURL returns a time-limited OSS GET URL for private-read objects.
+func (a *aliyunOSS) SignedURL(key string, ttl time.Duration) (string, error) {
+	secs := int64(ttl.Seconds())
+	if secs <= 0 {
+		secs = 600
+	}
+	return a.bucket.SignURL(key, oss.HTTPGet, secs)
 }

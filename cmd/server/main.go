@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os/signal"
@@ -26,6 +27,7 @@ import (
 	"github.com/hertz/captain/internal/seed"
 	"github.com/hertz/captain/internal/storage"
 	"github.com/hertz/captain/internal/store"
+	"github.com/hertz/captain/internal/templatecache"
 	"github.com/hertz/captain/internal/token"
 	"github.com/hertz/captain/internal/turnstile"
 	"github.com/hertz/captain/internal/webui"
@@ -91,6 +93,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	tplc := templatecache.New(st.Redis)
 	rt := realtime.New(st.Redis, r)
 	exp := export.New(st.JS, r, strg, cfg.PGDSN)
 
@@ -119,9 +122,9 @@ func run() error {
 	pa := &participation.Handler{Repo: r, Sig: sig, RT: rt,
 		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper, TS: ts}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
-		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts}
+		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts, TplC: tplc}
 	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts,
-		PC: pcfg, OrgPC: orgpc, Export: exp}
+		PC: pcfg, OrgPC: orgpc, Export: exp, Store: strg, TplC: tplc}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -151,6 +154,7 @@ func run() error {
 	mux.Handle("GET /api/v1/org/events", op("", og.Events))
 	mux.Handle("POST /api/v1/org/flows", op("can_create_event", og.CreateFlow))
 	mux.Handle("GET /api/v1/org/flows", op("", og.ListFlows))
+	mux.Handle("GET /api/v1/org/templates", op("", og.Templates))
 	mux.Handle("POST /api/v1/org/events", op("can_create_event", og.CreateEvent))
 	mux.Handle("PUT /api/v1/org/events/{id}", op("can_create_event", og.UpdateEvent))
 	mux.Handle("POST /api/v1/org/events/{id}/status", op("can_create_event", og.SetEventStatus))
@@ -180,6 +184,21 @@ func run() error {
 	mux.HandleFunc("GET "+apiAdmin+"/audit", ad.ListAudit)
 	mux.HandleFunc("POST "+apiAdmin+"/db-export", ad.CreateDBExport)
 	mux.HandleFunc("GET "+apiAdmin+"/db-export/{job_id}", ad.DBExportStatus)
+	mux.HandleFunc("GET "+apiAdmin+"/templates", ad.ListTemplates)
+	mux.HandleFunc("POST "+apiAdmin+"/templates", ad.CreateTemplate)
+	mux.HandleFunc("PUT "+apiAdmin+"/templates/{id}", ad.UpdateTemplate)
+	mux.HandleFunc("DELETE "+apiAdmin+"/templates/{id}", ad.DeleteTemplate)
+	mux.HandleFunc("POST "+apiAdmin+"/templates/{id}/assets", ad.UploadTemplateAsset)
+	// local-storage signed-URL proxy (SS1-03): streams a stored object.
+	mux.HandleFunc("GET /dl/{key...}", func(w http.ResponseWriter, rq *http.Request) {
+		rc, err := strg.Open(rq.PathValue("key"))
+		if err != nil {
+			httpx.Fail(w, http.StatusNotFound, "not_found", "对象不存在")
+			return
+		}
+		defer rc.Close()
+		_, _ = io.Copy(w, rc)
+	})
 
 	// 正式 UI = check-in-kiosk React（dist 内嵌）；screen 暂用内嵌页待 codex 改版
 	mux.HandleFunc("GET /m/{event_id}", webui.ReactIndex("mobile", ""))

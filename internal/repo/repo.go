@@ -799,5 +799,113 @@ func (r *Repo) ExportJobKind(ctx context.Context, id string) (string, error) {
 	return kind, err
 }
 
+// ---- SS-1: templates ----
+
+func (r *Repo) CreateTemplate(ctx context.Context, kind, code, name string, version int, organizerID *string, manifest []byte) (string, error) {
+	if len(manifest) == 0 {
+		manifest = []byte("{}")
+	}
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO template (kind, code, name, version, organizer_id, manifest)
+		 VALUES ($1,$2,$3,$4,$5,$6::jsonb) RETURNING id`,
+		kind, code, name, version, organizerID, manifest).Scan(&id)
+	return id, err
+}
+
+func scanTemplates(rows pgx.Rows) ([]domain.Template, error) {
+	defer rows.Close()
+	var out []domain.Template
+	for rows.Next() {
+		var t domain.Template
+		var org *string
+		var man []byte
+		if err := rows.Scan(&t.ID, &t.Kind, &t.Code, &t.Name, &t.Version,
+			&t.Status, &org, &man, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		if org != nil {
+			t.OrganizerID = *org
+		}
+		_ = json.Unmarshal(man, &t.Manifest)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+const tplCols = `id, kind, code, name, version, status, organizer_id, manifest, created_at`
+
+// ListTemplates (admin) returns all templates of a kind ("" = any).
+func (r *Repo) ListTemplates(ctx context.Context, kind string) ([]domain.Template, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT `+tplCols+` FROM template WHERE ($1='' OR kind=$1) ORDER BY created_at DESC`, kind)
+	if err != nil {
+		return nil, err
+	}
+	return scanTemplates(rows)
+}
+
+// ListTemplatesForOrganizer returns published templates visible to an org:
+// globals (organizer_id IS NULL) plus that org's own customs.
+func (r *Repo) ListTemplatesForOrganizer(ctx context.Context, kind, organizerID string) ([]domain.Template, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT `+tplCols+` FROM template
+		  WHERE status='published' AND ($1='' OR kind=$1)
+		    AND (organizer_id IS NULL OR organizer_id::text=$2)
+		  ORDER BY created_at DESC`, kind, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	return scanTemplates(rows)
+}
+
+func (r *Repo) UpdateTemplateStatus(ctx context.Context, id, status string) error {
+	ct, err := r.pg.Exec(ctx, `UPDATE template SET status=$2 WHERE id=$1`, id, status)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) AddTemplateAsset(ctx context.Context, templateID, storageKey, mime, role string, size int64) (string, error) {
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO template_asset (template_id, storage_key, mime, size, role)
+		 VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+		templateID, storageKey, mime, size, role).Scan(&id)
+	return id, err
+}
+
+// TemplateCodeAllowed reports whether a code is a published template of kind
+// visible to organizerID (global or that org's custom) — event validation.
+func (r *Repo) TemplateCodeAllowed(ctx context.Context, kind, code, organizerID string) bool {
+	if code == "" {
+		return false
+	}
+	var n int
+	_ = r.pg.QueryRow(ctx,
+		`SELECT count(*) FROM template
+		  WHERE kind=$1 AND code=$2 AND status='published'
+		    AND (organizer_id IS NULL OR organizer_id::text=$3)`,
+		kind, code, organizerID).Scan(&n)
+	return n > 0
+}
+
+// AnyTemplatePublished reports whether the registry has ≥1 published template
+// of kind visible to organizerID (used for permissive event validation:
+// enforce only once templates exist, SS1-08).
+func (r *Repo) AnyTemplatePublished(ctx context.Context, kind, organizerID string) bool {
+	var n int
+	_ = r.pg.QueryRow(ctx,
+		`SELECT count(*) FROM template
+		  WHERE kind=$1 AND status='published'
+		    AND (organizer_id IS NULL OR organizer_id::text=$2)`,
+		kind, organizerID).Scan(&n)
+	return n > 0
+}
+
 // Pool exposes the pool for seed bootstrapping only.
 func (r *Repo) Pool() *pgxpool.Pool { return r.pg }
