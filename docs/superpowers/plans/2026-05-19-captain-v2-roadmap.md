@@ -98,17 +98,17 @@
 - [x] **SS3-02** flow 校验：stage 合法、每 stage 类型绑定(R1=checkin/R2=form/R3=exam/R4=lottery)、entry/next 引用合法、checkin.days>=0 — Modify `internal/flow/flow.go`, `internal/flow/flow_test.go` | 验收: 非法 schema 报错 | 测试: 正反例
 - [x] **SS3-03** flow 顺序门禁判定 `CanEnter(stage, doneStages)`（仅串已启用 stage） — Modify `internal/flow/flow.go` | 验收: 跳过未启用、串已启用 | 测试: 组合矩阵
 - [x] **SS3-04** flow per-step config 形状校验（form.fields/exam.config/lottery.config） — Modify `internal/flow/flow.go` | 验收: 缺字段报错 | 测试: 每类型
-- [ ] **SS3-05** 迁移 0009：`exam_question` — Create `internal/store/migrations/0009_exam.sql` | 验收: 幂等 | 测试: 列断言
-- [ ] **SS3-06** repo exam 题库 import(覆盖式)/list — Modify `internal/repo/repo.go` | 验收: 覆盖旧题、随机题数<=题量校验 | 测试: 导入+越界拒绝
-- [ ] **SS3-07** organizer `POST /org/events/{id}/exam/import` `GET .../exam` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 仅本租户 | 测试: 鉴权+往返
-- [ ] **SS3-08** 迁移 0010：`lottery_pool`/`lottery_membership`/`lottery_prize`/`lottery_rig_entry`/`lottery_result` — Create `internal/store/migrations/0010_lottery.sql` | 验收: 幂等、UNIQUE/CHECK 就位 | 测试: 约束断言
-- [ ] **SS3-09** repo lottery 配置：pools upsert / prizes upsert(绑 pool) — Modify `internal/repo/repo.go` | 验收: prize 必属某 pool | 测试: 越界拒绝
-- [ ] **SS3-10** organizer `POST /org/events/{id}/lottery/pools` `/prizes` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: is_default 至多一个 | 测试: 多 default 拒绝
-- [ ] **SS3-11** repo 成员→奖池指派导入（CSV，UNIQUE 强制互斥）+ rig 导入（校验 prize∈成员所属池） — Modify `internal/repo/repo.go` | 验收: 互斥、跨池内定拒绝 | 测试: 冲突/非法
-- [ ] **SS3-12** organizer `POST .../lottery/membership/import` `/rig/import` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 审计每次导入 | 测试: 往返+审计
-- [ ] **SS3-13** event 创建/更新支持 timezone/identity flags/模板（整合 SS-1/SS-2 字段） — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 字段落库校验 | 测试: 边界
-- [ ] **SS3-14** CreateFlow/UpdateFlow 走 flow v2 校验 — Modify `internal/organizer/handler.go` | 验收: 非法 flow 400 | 测试: 正反
-- [ ] **SS3-15** SS-3 阶段验收：build/vet/test + smoke（建活动→配 R1-R4→导题/奖池/名册）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
+- [x] **SS3-05** 迁移 0009：`exam_question` — Create `internal/store/migrations/0009_exam.sql` | 验收: 幂等 | 测试: 列断言
+- [x] **SS3-06** repo exam 题库 import(覆盖式)/list — Modify `internal/repo/repo.go` | 验收: 覆盖旧题、随机题数<=题量校验 | 测试: 导入+越界拒绝
+- [x] **SS3-07** organizer `POST /org/events/{id}/exam/import` `GET .../exam` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 仅本租户 | 测试: 鉴权+往返
+- [x] **SS3-08** 迁移 0010：`lottery_pool`/`lottery_membership`/`lottery_prize`/`lottery_rig_entry`/`lottery_result` — Create `internal/store/migrations/0010_lottery.sql` | 验收: 幂等、UNIQUE/CHECK 就位 | 测试: 约束断言
+- [x] **SS3-09** repo lottery 配置：pools upsert / prizes upsert(绑 pool) — Modify `internal/repo/repo.go` | 验收: prize 必属某 pool | 测试: 越界拒绝
+- [x] **SS3-10** organizer `POST /org/events/{id}/lottery/pools` `/prizes` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: is_default 至多一个 | 测试: 多 default 拒绝
+- [x] **SS3-11** repo 成员→奖池指派导入（CSV，UNIQUE 强制互斥）+ rig 导入（校验 prize∈成员所属池） — Modify `internal/repo/repo.go` | 验收: 互斥、跨池内定拒绝 | 测试: 冲突/非法
+- [x] **SS3-12** organizer `POST .../lottery/membership/import` `/rig/import` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 审计每次导入 | 测试: 往返+审计
+- [x] **SS3-13** event 创建/更新支持 timezone/identity flags/模板（整合 SS-1/SS-2 字段） — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 字段落库校验 | 测试: 边界
+- [x] **SS3-14** CreateFlow/UpdateFlow 走 flow v2 校验 — Modify `internal/organizer/handler.go` | 验收: 非法 flow 400 | 测试: 正反
+- [x] **SS3-15** SS-3 阶段验收：build/vet/test + smoke（建活动→配 R1-R4→导题/奖池/名册）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
 
 ## Phase SS-4 — 用户参与流程运行时（R1/R2/R3）
 
