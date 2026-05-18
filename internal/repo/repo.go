@@ -1087,5 +1087,214 @@ func (r *Repo) AnyTemplatePublished(ctx context.Context, kind, organizerID strin
 	return n > 0
 }
 
+// ---- SS-3: exam question bank ----
+
+type ExamQ struct {
+	Idx     int      `json:"idx"`
+	Stem    string   `json:"stem"`
+	Options []string `json:"options"`
+	Correct []int    `json:"correct"`
+	Score   int      `json:"score"`
+	Multi   bool     `json:"multi"`
+}
+
+// ReplaceExamQuestions overwrites the bank for (event, step) (SS3-06).
+func (r *Repo) ReplaceExamQuestions(ctx context.Context, eventID, stepID string, qs []ExamQ) (int, error) {
+	tx, err := r.pg.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx,
+		`DELETE FROM exam_question WHERE event_id=$1 AND step_id=$2`, eventID, stepID); err != nil {
+		return 0, err
+	}
+	for i, q := range qs {
+		opt, _ := json.Marshal(q.Options)
+		cor, _ := json.Marshal(q.Correct)
+		sc := q.Score
+		if sc <= 0 {
+			sc = 1
+		}
+		if _, err = tx.Exec(ctx,
+			`INSERT INTO exam_question (event_id, step_id, idx, stem, options, correct, score, multi)
+			 VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)`,
+			eventID, stepID, i, q.Stem, opt, cor, sc, q.Multi); err != nil {
+			return 0, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(qs), nil
+}
+
+func (r *Repo) ListExamQuestions(ctx context.Context, eventID, stepID string) ([]ExamQ, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT idx, stem, options, correct, score, multi FROM exam_question
+		  WHERE event_id=$1 AND step_id=$2 ORDER BY idx`, eventID, stepID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExamQ
+	for rows.Next() {
+		var q ExamQ
+		var opt, cor []byte
+		if err := rows.Scan(&q.Idx, &q.Stem, &opt, &cor, &q.Score, &q.Multi); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(opt, &q.Options)
+		_ = json.Unmarshal(cor, &q.Correct)
+		out = append(out, q)
+	}
+	return out, rows.Err()
+}
+
+// ---- SS-3/SS-5: lottery pools / prizes / membership / rig ----
+
+func (r *Repo) UpsertLotteryPool(ctx context.Context, eventID, stepID, code, name string, isDefault bool) (string, error) {
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO lottery_pool (event_id, step_id, code, name, is_default)
+		 VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (event_id, step_id, code)
+		   DO UPDATE SET name=EXCLUDED.name, is_default=EXCLUDED.is_default
+		 RETURNING id`, eventID, stepID, code, name, isDefault).Scan(&id)
+	return id, err
+}
+
+func (r *Repo) UpsertLotteryPrize(ctx context.Context, eventID, stepID, poolCode, code, name, level string, stock, weight int, imageKey string) (string, error) {
+	if weight <= 0 {
+		weight = 1
+	}
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO lottery_prize (event_id, step_id, pool_id, code, name, level, stock, weight, image_key)
+		 SELECT $1,$2,p.id,$4,$5,$6,$7,$8,NULLIF($9,'')
+		   FROM lottery_pool p
+		  WHERE p.event_id=$1 AND p.step_id=$2 AND p.code=$3
+		 ON CONFLICT (event_id, step_id, code) DO UPDATE
+		   SET name=EXCLUDED.name, level=EXCLUDED.level, stock=EXCLUDED.stock,
+		       weight=EXCLUDED.weight, image_key=EXCLUDED.image_key, pool_id=EXCLUDED.pool_id
+		 RETURNING id`,
+		eventID, stepID, poolCode, code, name, level, stock, weight, imageKey).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound // pool code unknown
+	}
+	return id, err
+}
+
+type LotteryMemberRow struct{ EmployeeNumber, PoolCode string }
+
+// ImportLotteryMembership assigns members to pools (UNIQUE enforces mutual
+// exclusion: a re-import for the same employee updates the pool).
+func (r *Repo) ImportLotteryMembership(ctx context.Context, eventID, stepID, createdBy string, rows []LotteryMemberRow) (int, error) {
+	n := 0
+	for _, m := range rows {
+		ct, err := r.pg.Exec(ctx,
+			`INSERT INTO lottery_membership (event_id, step_id, employee_number, pool_id, created_by)
+			 SELECT $1,$2,$3,p.id,NULLIF($5,'')::uuid FROM lottery_pool p
+			  WHERE p.event_id=$1 AND p.step_id=$2 AND p.code=$4
+			 ON CONFLICT (event_id, step_id, employee_number)
+			   DO UPDATE SET pool_id=EXCLUDED.pool_id`,
+			eventID, stepID, m.EmployeeNumber, m.PoolCode, createdBy)
+		if err != nil {
+			return n, err
+		}
+		n += int(ct.RowsAffected())
+	}
+	return n, nil
+}
+
+type LotteryRigRow struct{ EmployeeNumber, PrizeCode string }
+
+// ImportLotteryRig records pre-determined winners; each row validated so the
+// prize belongs to the member's assigned pool (default pool if unassigned).
+// Returns (accepted, rejected).
+func (r *Repo) ImportLotteryRig(ctx context.Context, eventID, stepID, createdBy string, rows []LotteryRigRow) (accepted, rejected int, err error) {
+	for _, rg := range rows {
+		var poolID string
+		e := r.pg.QueryRow(ctx,
+			`SELECT pool_id FROM lottery_membership
+			  WHERE event_id=$1 AND step_id=$2 AND employee_number=$3`,
+			eventID, stepID, rg.EmployeeNumber).Scan(&poolID)
+		if errors.Is(e, pgx.ErrNoRows) {
+			_ = r.pg.QueryRow(ctx,
+				`SELECT id FROM lottery_pool
+				  WHERE event_id=$1 AND step_id=$2 AND is_default LIMIT 1`,
+				eventID, stepID).Scan(&poolID)
+		} else if e != nil {
+			return accepted, rejected, e
+		}
+		var prizePool string
+		e = r.pg.QueryRow(ctx,
+			`SELECT pool_id FROM lottery_prize
+			  WHERE event_id=$1 AND step_id=$2 AND code=$3`,
+			eventID, stepID, rg.PrizeCode).Scan(&prizePool)
+		if e != nil || poolID == "" || prizePool != poolID {
+			rejected++
+			continue
+		}
+		if _, e = r.pg.Exec(ctx,
+			`INSERT INTO lottery_rig_entry (event_id, step_id, employee_number, prize_code, created_by)
+			 VALUES ($1,$2,$3,$4,NULLIF($5,'')::uuid)
+			 ON CONFLICT (event_id, step_id, employee_number)
+			   DO UPDATE SET prize_code=EXCLUDED.prize_code`,
+			eventID, stepID, rg.EmployeeNumber, rg.PrizeCode, createdBy); e != nil {
+			return accepted, rejected, e
+		}
+		accepted++
+	}
+	return accepted, rejected, nil
+}
+
+// SetEventTimezone sets the activity timezone (D4, tenant-scoped).
+func (r *Repo) SetEventTimezone(ctx context.Context, eventID, organizerID, tz string) error {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE event SET timezone=$3 WHERE id=$1 AND organizer_id=$2`,
+		eventID, organizerID, tz)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// LotterySummary returns per-pool prize stock/drawn + rig count (SS5-08).
+func (r *Repo) LotterySummary(ctx context.Context, eventID, stepID string) (map[string]any, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT p.code, p.name, p.is_default,
+		        COALESCE(sum(z.stock),0), COALESCE(sum(z.drawn),0)
+		   FROM lottery_pool p
+		   LEFT JOIN lottery_prize z ON z.pool_id=p.id
+		  WHERE p.event_id=$1 AND p.step_id=$2
+		  GROUP BY p.id, p.code, p.name, p.is_default
+		  ORDER BY p.code`, eventID, stepID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	pools := []map[string]any{}
+	for rows.Next() {
+		var code, name string
+		var isDef bool
+		var stock, drawn int
+		if err := rows.Scan(&code, &name, &isDef, &stock, &drawn); err != nil {
+			return nil, err
+		}
+		pools = append(pools, map[string]any{
+			"code": code, "name": name, "is_default": isDef,
+			"stock": stock, "drawn": drawn, "remaining": stock - drawn})
+	}
+	var rig int
+	_ = r.pg.QueryRow(ctx,
+		`SELECT count(*) FROM lottery_rig_entry WHERE event_id=$1 AND step_id=$2`,
+		eventID, stepID).Scan(&rig)
+	return map[string]any{"pools": pools, "rigged": rig}, rows.Err()
+}
+
 // Pool exposes the pool for seed bootstrapping only.
 func (r *Repo) Pool() *pgxpool.Pool { return r.pg }

@@ -86,3 +86,16 @@ func TestMigrations_0008_IdentityFactors(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrations_0009_0010(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	for _, tbl := range []string{"exam_question", "lottery_pool", "lottery_membership",
+		"lottery_prize", "lottery_rig_entry", "lottery_result"} {
+		var n int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM information_schema.tables WHERE table_name=$1`, tbl).Scan(&n); err != nil || n == 0 {
+			t.Errorf("table %s missing (%v)", tbl, err)
+		}
+	}
+}
