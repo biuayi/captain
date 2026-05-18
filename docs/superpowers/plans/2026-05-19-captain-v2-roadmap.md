@@ -112,21 +112,21 @@
 
 ## Phase SS-4 — 用户参与流程运行时（R1/R2/R3）
 
-- [ ] **SS4-01** submit 鉴权改 participant JWT（去 device-session 依赖），保留限流 — Modify `internal/participation/handler.go` | 验收: 无 JWT 401 | 测试: 鉴权
-- [ ] **SS4-02** 迁移 0011：`participation` + data_field_1/2/device_id/current_stage/stage_done/completed_all/completed_at + 索引 — Create `internal/store/migrations/0011_records_funnel.sql` | 验收: 幂等+索引 | 测试: 列/索引断言
-- [ ] **SS4-03** 迁移 0008 已含 `checkin_day`；repo `MarkCheckinDay(participation, day, geo)` 幂等(ON CONFLICT) — Modify `internal/repo/repo.go` | 验收: 同日去重 | 测试: 并发同日仅一条
-- [ ] **SS4-04** R1 完成判定 `distinct day >= days` + 标记 stage_done.R1 + 推进 current_stage（同事务） — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: days=0 跳过、N 日门禁 | 测试: 1日/多日/0日
-- [ ] **SS4-05** 顺序门禁中间逻辑：提交某 stage 前校验前序已启用 stage 完成，否则 409 stage_gated — Modify `internal/participation/handler.go` | 验收: 越级拒绝 | 测试: 门禁矩阵
-- [ ] **SS4-06** R2 form 记录 + `POST /p/e/{id}/uploads`（multipart→storage，MIME/大小白名单）→ key — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 非法类型 415 | 测试: 合法/非法
-- [ ] **SS4-07** R2 提交写 data_field_1(文本汇总)/data_field_2(OSS key) + stage_done.R2 — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: 字段落库 | 测试: 断言
-- [ ] **SS4-08** R3 exam 取题 `GET /p/e/{id}/steps/{step}`（确定性选题 by participant+step，不下发 correct） — Modify `internal/participation/handler.go` | 验收: 同人稳定、无答案泄露 | 测试: 确定性+无 correct
-- [ ] **SS4-09** R3 判分（单/多选累加 score，passed=score>=passScore，attemptLimit） + 记录 + stage_done.R3 — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: 判分正确、超次拒绝 | 测试: 判分矩阵
-- [ ] **SS4-10** 每环节必记录到 participation_step_record（统一封装） — Modify `internal/participation/handler.go` | 验收: R1-R4 各落记录 | 测试: 全环节断言
-- [ ] **SS4-11** 参与人数口径改：完成≥1启用环节即计入；realtime 触发点接“首个启用环节完成” — Modify `internal/participation/handler.go`, `internal/realtime/realtime.go`, `internal/repo/repo.go`(CheckinCount→ParticipatedCount) | 验收: 口径正确 | 测试: 各启用组合
-- [ ] **SS4-12** 完成人数 completed_all + completed_at（最后启用 stage 完成时置） — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: 仅全完成置 true | 测试: 部分/全
-- [ ] **SS4-13** realtime 10s 对账 SQL 改“参与人数”口径 — Modify `internal/realtime/realtime.go`, `internal/repo/repo.go` | 验收: 对账纠偏正确 | 测试: 偏移注入纠偏
-- [ ] **SS4-14** `GET /p/e/{id}/me` 完善流程进度（current_stage/各 stage done/下一步） — Modify `internal/participation/handler.go` | 验收: 进度准确 | 测试: 多阶段
-- [ ] **SS4-15** SS-4 阶段验收：build/vet/test + smoke（登录→R1多日门禁→R2图片→R3计分）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
+- [x] **SS4-01** submit 鉴权改 participant JWT（去 device-session 依赖），保留限流 — Modify `internal/participation/handler.go` | 验收: 无 JWT 401 | 测试: 鉴权
+- [x] **SS4-02** 迁移 0011：`participation` + data_field_1/2/device_id/current_stage/stage_done/completed_all/completed_at + 索引 — Create `internal/store/migrations/0011_records_funnel.sql` | 验收: 幂等+索引 | 测试: 列/索引断言
+- [x] **SS4-03** 迁移 0008 已含 `checkin_day`；repo `MarkCheckinDay(participation, day, geo)` 幂等(ON CONFLICT) — Modify `internal/repo/repo.go` | 验收: 同日去重 | 测试: 并发同日仅一条
+- [x] **SS4-04** R1 完成判定 `distinct day >= days` + 标记 stage_done.R1 + 推进 current_stage（同事务） — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: days=0 跳过、N 日门禁 | 测试: 1日/多日/0日
+- [x] **SS4-05** 顺序门禁中间逻辑：提交某 stage 前校验前序已启用 stage 完成，否则 409 stage_gated — Modify `internal/participation/handler.go` | 验收: 越级拒绝 | 测试: 门禁矩阵
+- [x] **SS4-06** R2 form 记录 + `POST /p/e/{id}/uploads`（multipart→storage，MIME/大小白名单）→ key — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 非法类型 415 | 测试: 合法/非法
+- [x] **SS4-07** R2 提交写 data_field_1(文本汇总)/data_field_2(OSS key) + stage_done.R2 — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: 字段落库 | 测试: 断言
+- [x] **SS4-08** R3 exam 取题 `GET /p/e/{id}/steps/{step}`（确定性选题 by participant+step，不下发 correct） — Modify `internal/participation/handler.go` | 验收: 同人稳定、无答案泄露 | 测试: 确定性+无 correct
+- [x] **SS4-09** R3 判分（单/多选累加 score，passed=score>=passScore，attemptLimit） + 记录 + stage_done.R3 — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: 判分正确、超次拒绝 | 测试: 判分矩阵
+- [x] **SS4-10** 每环节必记录到 participation_step_record（统一封装） — Modify `internal/participation/handler.go` | 验收: R1-R4 各落记录 | 测试: 全环节断言
+- [x] **SS4-11** 参与人数口径改：完成≥1启用环节即计入；realtime 触发点接“首个启用环节完成” — Modify `internal/participation/handler.go`, `internal/realtime/realtime.go`, `internal/repo/repo.go`(CheckinCount→ParticipatedCount) | 验收: 口径正确 | 测试: 各启用组合
+- [x] **SS4-12** 完成人数 completed_all + completed_at（最后启用 stage 完成时置） — Modify `internal/participation/handler.go`, `internal/repo/repo.go` | 验收: 仅全完成置 true | 测试: 部分/全
+- [x] **SS4-13** realtime 10s 对账 SQL 改“参与人数”口径 — Modify `internal/realtime/realtime.go`, `internal/repo/repo.go` | 验收: 对账纠偏正确 | 测试: 偏移注入纠偏
+- [x] **SS4-14** `GET /p/e/{id}/me` 完善流程进度（current_stage/各 stage done/下一步） — Modify `internal/participation/handler.go` | 验收: 进度准确 | 测试: 多阶段
+- [x] **SS4-15** SS-4 阶段验收：build/vet/test + smoke（登录→R1多日门禁→R2图片→R3计分）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
 
 ## Phase SS-5 — 在线抽奖（多奖池/池内内定/审计）
 
