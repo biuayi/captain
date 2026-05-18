@@ -32,6 +32,12 @@ const (
 	KindAuth    = "auth"
 )
 
+const (
+	RoleParticipant = "participant"
+	RoleOrganizer   = "organizer"
+	RoleAdmin       = "admin"
+)
+
 type Claims struct {
 	Kind       string `json:"k"`
 	Subject    string `json:"sub,omitempty"` // organizer/admin id, or device hash

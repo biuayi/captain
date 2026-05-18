@@ -37,6 +37,25 @@ func TestKindMismatch(t *testing.T) {
 	}
 }
 
+func TestRoleParticipantRoundTrip(t *testing.T) {
+	s := New("secret-b")
+	tok, err := s.Sign(Claims{Kind: KindAuth, Role: RoleParticipant, Subject: "p42",
+		ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Verify(tok, KindAuth)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if c.Role != RoleParticipant {
+		t.Fatalf("role = %q, want %q", c.Role, RoleParticipant)
+	}
+	if c.Subject != "p42" {
+		t.Fatalf("subject = %q", c.Subject)
+	}
+}
+
 func TestTamperAndWrongSecret(t *testing.T) {
 	s := New("right")
 	tok, _ := s.Sign(Claims{Kind: KindEvent, ExpiresAt: time.Now().Add(time.Hour).Unix()})
