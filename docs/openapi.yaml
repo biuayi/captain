@@ -1,0 +1,87 @@
+openapi: 3.0.3
+info:
+  title: captain — 企业内部活动平台 API (v2)
+  version: "2.0.0"
+  description: >
+    三接口域：participation(/api/v1/p, 参与者 JWT)、organizer(/api/v1/org,
+    活动方 JWT + 权限位中间件)、admin(/api/v1/{adminSlug}, 超管 JWT, 路径混淆)。
+    权威设计见 docs/DESIGN.md。错误信封 {code,message,request_id}。
+servers: [{ url: / }]
+tags: [participation, organizer, admin]
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+paths:
+  /healthz: { get: { tags: [participation], summary: 健康检查, responses: { "200": { description: ok } } } }
+
+  /api/v1/p/e/{event_id}:
+    get: { tags: [participation], summary: "落地：校验 event_token，回 event+flow+need_login", parameters: [{name: event_id, in: path, required: true, schema: {type: string}}], responses: { "200": { description: ok } } }
+  /api/v1/p/e/{event_id}/login:
+    post: { tags: [participation], summary: "参与者登录(工号+手机后4位[+name/phone/company])→JWT", responses: { "200": {description: token}, "401": {description: bad_credentials}, "403": {description: captcha_failed}, "423": {description: account_locked} } }
+  /api/v1/p/e/{event_id}/logout:
+    post: { tags: [participation], summary: 登出(撤销 jti), security: [{bearer: []}], responses: { "200": {description: ok} } }
+  /api/v1/p/e/{event_id}/me:
+    get: { tags: [participation], summary: 当前参与者, security: [{bearer: []}], responses: { "200": {description: ok} } }
+  /api/v1/p/e/{event_id}/me/records:
+    get: { tags: [participation], summary: 本人记录(各步+exam+lottery), security: [{bearer: []}], responses: { "200": {description: ok} } }
+  /api/v1/p/e/{event_id}/steps/{step_id}:
+    get: { tags: [participation], summary: "step 运行态(exam取题无答案/签到进度)", security: [{bearer: []}], responses: { "200": {description: ok} } }
+  /api/v1/p/e/{event_id}/steps/{step_id}/submit:
+    post: { tags: [participation], summary: "提交步骤(R1多日签到/R2问卷/R3考试/aux)；D5顺序门禁", security: [{bearer: []}], responses: { "200": {description: ok}, "409": {description: stage_gated} } }
+  /api/v1/p/e/{event_id}/steps/{step_id}/draw:
+    post: { tags: [participation], summary: "R4抽奖(一人一抽幂等,多奖池/内定/加权)", security: [{bearer: []}], responses: { "200": {description: result} } }
+  /api/v1/p/e/{event_id}/steps/{step_id}/result:
+    get: { tags: [participation], summary: 本人抽奖结果, security: [{bearer: []}], responses: { "200": {description: ok} } }
+  /api/v1/p/e/{event_id}/uploads:
+    post: { tags: [participation], summary: "R2 文件上传→对象存储(MIME/大小白名单)", security: [{bearer: []}], responses: { "201": {description: key} } }
+  /api/v1/p/e/{event_id}/count: { get: { tags: [participation], summary: 实时参与人数快照, responses: { "200": {description: ok} } } }
+  /api/v1/p/e/{event_id}/info: { get: { tags: [participation], summary: 公开活动元信息, responses: { "200": {description: ok} } } }
+  /api/v1/p/e/{event_id}/qr: { get: { tags: [participation], summary: 入场二维码 PNG, responses: { "200": {description: image/png} } } }
+  /api/v1/p/e/{event_id}/stream: { get: { tags: [participation], summary: "SSE(typed: count/winner/milestone, 向后兼容)", responses: { "200": {description: event-stream} } } }
+
+  /api/v1/org/login: { post: { tags: [organizer], summary: 活动方登录(硬化+Turnstile)→JWT(含权限位/版本), responses: { "200": {description: token} } } }
+  /api/v1/org/events:
+    get: { tags: [organizer], summary: 列出本租户活动, security: [{bearer: []}], responses: { "200": {description: ok} } }
+    post: { tags: [organizer], summary: 新建活动(需 can_create_event), security: [{bearer: []}], responses: { "201": {description: created}, "403": {description: perm_denied} } }
+  /api/v1/org/events/{id}: { get: { tags: [organizer], summary: 活动详情+实时数, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } }, put: { tags: [organizer], summary: 更新活动, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/status: { post: { tags: [organizer], summary: 设置状态, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/config: { post: { tags: [organizer], summary: "活动配置(时区/身份因子/严格指纹)", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/entry: { get: { tags: [organizer], summary: 入场链接+event_token, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/whitelist: { get: { tags: [organizer], summary: 名单列表, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/whitelist/import: { post: { tags: [organizer], summary: "名单导入(可变表头 employee_number,phone_last4[,name][,phone][,company])", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/whitelist/{entry_id}/unbind: { post: { tags: [organizer], summary: 取消用户设备关联(审计), security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}, {name: entry_id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/templates: { get: { tags: [organizer], summary: 可选模板(全局+本租户), security: [{bearer: []}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/exam/import: { post: { tags: [organizer], summary: 导入考试题库, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/exam: { get: { tags: [organizer], summary: 查看题库, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/lottery/pools: { post: { tags: [organizer], summary: 配置奖池, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/lottery/prizes: { post: { tags: [organizer], summary: 配置奖项(绑池), security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/lottery/membership/import: { post: { tags: [organizer], summary: "成员→奖池指派(CSV,互斥)", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/lottery/rig/import: { post: { tags: [organizer], summary: "池内内定名单(CSV,校验prize∈池)", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/lottery/summary: { get: { tags: [organizer], summary: 各池余量/内定数, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/lottery/audit/export: { post: { tags: [organizer], summary: 抽奖过程审计导出(异步CSV), security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "202": {description: job} } } }
+  /api/v1/org/events/{id}/participants: { get: { tags: [organizer], summary: "参与明细(手机脱敏,需 can_view_records)", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/stats: { get: { tags: [organizer], summary: "D5 参与/完成人数+环节漏斗", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/warnings: { get: { tags: [organizer], summary: D3 告警列表, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/events/{id}/warnings/export: { post: { tags: [organizer], summary: 告警异步导出, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "202": {description: job} } } }
+  /api/v1/org/events/{id}/export: { post: { tags: [organizer], summary: "参与明细异步导出(需 can_export_records)", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "202": {description: job} } } }
+  /api/v1/org/exports/{job_id}: { get: { tags: [organizer], summary: 导出状态, security: [{bearer: []}], parameters: [{name: job_id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/org/exports/{job_id}/download: { get: { tags: [organizer], summary: 下载导出, security: [{bearer: []}], parameters: [{name: job_id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: text/csv} } } }
+
+  /api/v1/{adminSlug}/login: { post: { tags: [admin], summary: 超管登录(硬化), responses: { "200": {description: token} } } }
+  /api/v1/{adminSlug}/organizers:
+    get: { tags: [admin], summary: 活动方列表(含权限位), security: [{bearer: []}], responses: { "200": {description: ok} } }
+    post: { tags: [admin], summary: 新建活动方, security: [{bearer: []}], responses: { "201": {description: created} } }
+  /api/v1/{adminSlug}/organizers/{id}/status: { post: { tags: [admin], summary: 启停, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/organizers/{id}: { delete: { tags: [admin], summary: 软删活动方, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/organizers/{id}/password: { post: { tags: [admin], summary: 重置密码, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/organizers/{id}/permissions: { patch: { tags: [admin], summary: 设权限位(perm_version+1,即时失效旧JWT), security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/config: { get: { tags: [admin], summary: "平台密钥状态(set+掩码,无明文)", security: [{bearer: []}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/config/{key}: { put: { tags: [admin], summary: "设平台密钥(AES-GCM加密落库)", security: [{bearer: []}], parameters: [{name: key, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/audit: { get: { tags: [admin], summary: 审计查询, security: [{bearer: []}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/db-export: { post: { tags: [admin], summary: 数据库导出(pg_dump→存储), security: [{bearer: []}], responses: { "202": {description: job} } } }
+  /api/v1/{adminSlug}/db-export/{job_id}: { get: { tags: [admin], summary: DB导出状态, security: [{bearer: []}], parameters: [{name: job_id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/templates:
+    get: { tags: [admin], summary: 模板列表, security: [{bearer: []}], responses: { "200": {description: ok} } }
+    post: { tags: [admin], summary: 建模板, security: [{bearer: []}], responses: { "201": {description: created} } }
+  /api/v1/{adminSlug}/templates/{id}: { put: { tags: [admin], summary: 改/发布/停用, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } }, delete: { tags: [admin], summary: 停用模板, security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "200": {description: ok} } } }
+  /api/v1/{adminSlug}/templates/{id}/assets: { post: { tags: [admin], summary: "上传模板资源(MIME白名单)", security: [{bearer: []}], parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: { "201": {description: created} } } }

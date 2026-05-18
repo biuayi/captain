@@ -171,12 +171,12 @@
 
 ## Phase PF — 集成 / E2E / 收尾
 
-- [ ] **PF-01** `scripts/smoke.sh` 重写全链路：登录→R1多日门禁→R2图片→R3计分→R4多池抽奖(普通/内定)→中奖推大屏→活动方看记录/漏斗/告警→导出CSV→用户查本人 — Modify `scripts/smoke.sh` | 验收: 全链路 0 退出 | 测试: 脚本
-- [ ] **PF-02** 多租户隔离回归测试集（跨租户越权全 404/403） — Create `internal/.../tenant_isolation_test.go` | 验收: 全部拒绝 | 测试: 矩阵
-- [ ] **PF-03** 并发竞争总测：抽奖不超卖/一人一抽、whitelist claim、多日签到、奖池互斥 UNIQUE — Create 竞争测试 | 验收: 无超卖/无重复 | 测试: 高并发
-- [ ] **PF-04** 门控集成节点标注与脚本（Turnstile enforce / 阿里云 OSS / DB dump）——需真 token，给出 env 清单与安全交接说明 — Create `docs/INTEGRATION-GATED.md` | 验收: 文档可操作 | 测试: 评审
-- [ ] **PF-05** OpenAPI 重生成（反映 v2 全部端点） — Create `docs/openapi.yaml` | 验收: 与路由一致 | 测试: 端点对账脚本
-- [ ] **PF-06** 全局验收：build/vet/test 全绿 + smoke 全绿 + screenstress/lotterystress 不退化 + PROGRESS 收尾 — Modify `docs/PROGRESS.md` | 验收: 全绿、看板更新 | 测试: 全量
+- [x] **PF-01** `scripts/smoke.sh` 重写全链路：登录→R1多日门禁→R2图片→R3计分→R4多池抽奖(普通/内定)→中奖推大屏→活动方看记录/漏斗/告警→导出CSV→用户查本人 — Modify `scripts/smoke.sh` | 验收: 全链路 0 退出 | 测试: 脚本
+- [x] **PF-02** 多租户隔离回归测试集（跨租户越权全 404/403） — Create `internal/.../tenant_isolation_test.go` | 验收: 全部拒绝 | 测试: 矩阵
+- [x] **PF-03** 并发竞争总测：抽奖不超卖/一人一抽、whitelist claim、多日签到、奖池互斥 UNIQUE — Create 竞争测试 | 验收: 无超卖/无重复 | 测试: 高并发
+- [x] **PF-04** 门控集成节点标注与脚本（Turnstile enforce / 阿里云 OSS / DB dump）——需真 token，给出 env 清单与安全交接说明 — Create `docs/INTEGRATION-GATED.md` | 验收: 文档可操作 | 测试: 评审
+- [x] **PF-05** OpenAPI 重生成（反映 v2 全部端点） — Create `docs/openapi.yaml` | 验收: 与路由一致 | 测试: 端点对账脚本
+- [x] **PF-06** 全局验收：build/vet/test 全绿 + smoke 全绿 + screenstress/lotterystress 不退化 + PROGRESS 收尾 — Modify `docs/PROGRESS.md` | 验收: 全绿、看板更新 | 测试: 全量
 
 ---
 

@@ -17,8 +17,8 @@
 | SS-4 运行时 R1/R2/R3（15） | DONE（迁移0011/JWT提交/D5门禁/R1多日/R2上传/R3计分/漏斗；运行时集成测试真库全绿） |
 | SS-5 抽奖多奖池（14） | DONE（lottery算法/原子抽奖/幂等/内定/审计导出；并发不超卖测试真库全绿） |
 | SS-6 大屏（7） | DONE（typed信封/OnParticipated/prize.won消费/winner滚动；真库全绿） |
-| SS-7 记录与导出（11） | 进行中 |
-| PF 集成/E2E/收尾（6） | TODO |
+| SS-7 记录与导出（11） | DONE |
+| PF 集成/E2E/收尾（6） | DONE（租户隔离/并发竞争/门控文档/openapi/smoke；build·vet·test ./... 全绿真库） |
 
 ## 续做说明
 
