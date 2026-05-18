@@ -108,8 +108,8 @@
 | 0007 | `template`(新) | `id uuid pk, kind text CHECK in(screen,flow_page), code text, name text, version int, status text, organizer_id uuid NULL(REFERENCES organizer), manifest jsonb, created_at; UNIQUE(code, version); INDEX(kind,status)` （`organizer_id NULL`=全局，非空=该租户定制） |
 | 0007 | `template_asset`(新) | `id uuid pk, template_id uuid fk, storage_key text, mime text, size bigint, role text, created_at` |
 | 0007 | `event` | + `flow_template_code text`（用户侧流程页模板，screen 沿用 `screen_template_code`）；`screen_template_code` 保留兼容 |
-| 0008 | `event_whitelist_entry` | + `claimed_jwt_jti text`（当前有效会话标记，防一号多端）；语义保留，登录改为**全手机号**匹配（已存 `phone_number`） |
-| 0008 | `event` | + `timezone text NOT NULL DEFAULT 'Asia/Shanghai'`（活动方设定，驱动 R1 日界）、`strict_fingerprint bool NOT NULL DEFAULT false`（D3 严格阻断开关） |
+| 0008 | `event_whitelist_entry` | + `company text`（多企业联办消歧，单企业空）、+ `claimed_jwt_jti text`（当前有效会话，防一号多端）；`phone_number`/`phone_last4` **放宽为可空** + 删/改 `ewe_phone_last4_format` CHECK（D2 手机可选）；唯一键 `uniq_ewe_event_employee` **替换为** `UNIQUE(event_id, company_norm, employee_number)` |
+| 0008 | `event` | + `timezone text NOT NULL DEFAULT 'Asia/Shanghai'`（D4 活动方设定，驱动 R1 日界）、`strict_fingerprint bool NOT NULL DEFAULT false`（D3）、`identity_require_phone bool NOT NULL DEFAULT false`、`identity_multi_company bool NOT NULL DEFAULT false`（D2 身份因子开关） |
 | 0008 | `checkin_day`(新) | `id uuid pk, participation_id uuid fk, day_date date, checked_at timestamptz, lat/lng/accuracy double precision NULL; UNIQUE(participation_id, day_date)`（R1 多日签到去重与门禁；day_date 按 `event.timezone` 折算） |
 | 0008 | `participation_warning`(新) | `id uuid pk, participation_id uuid fk, event_id uuid fk, kind text, detail jsonb, created_at timestamptz; INDEX(event_id, created_at desc)`（D3 告警留痕：指纹不一致/顶号等，活动方可导出告警列表） |
 | 0009 | `exam_question`(新) | `id uuid pk, event_id uuid fk, step_id text, idx int, stem text, options jsonb, correct jsonb, score int, multi bool; INDEX(event_id, step_id, idx)` |
@@ -190,28 +190,33 @@
 ## SS-2 参与者身份与登录（白名单强身份）
 
 **功能**
-1. 活动方导入员工名单（**保留** CSV `employee_number,name,phone`）。
-2. 用户登录：四元组 = **名单内 用户ID/姓名 + 工号 + 手机号 + 活动ID(path)**。校验 `event_whitelist_entry`：`(event_id, employee_number)` 命中且 `name` 全等且 **全手机号 `phone_number` 全等**。成功 → upsert participant（staff 路径，复用 `UpsertParticipantFull`）+ 绑定指纹（复用 `ClaimWhitelist` 条件 UPDATE）+ 签发参与者 JWT。
-3. 一号一端：登录写 `claimed_jwt_jti`，旧会话失效（防借号）。**D3 指纹不一致策略**：默认**记录告警**到 `participation_warning`（kind=`fingerprint_mismatch`/`session_takeover`），不阻断；活动方可在活动设置 `strict_fingerprint=true` 改为**严格阻断**（登录/提交直接拒绝并告警）。告警列表可由活动方导出（见 SS-7）。
-4. 登录硬化：`loginguard` scope `participant:{event_id}`（恒延迟+失败锁定）；可选 Turnstile。
-5. legacy 公开/匿名/external 路径 → `CAPTAIN_OPEN_PARTICIPATION=off` 默认关闭，仅 demo。
+1. 活动方导入员工名单（CSV）。**D2 可变身份因子**：导入/活动设置时活动方勾选启用项——
+   - **手机号**：默认**不要求**（部分企业出于内部信息合规不提供）。勾选 `identity_require_phone=true` 才作为登录校验因子并需名单含手机号；不勾选则名单可不含手机号、登录不校验手机号。
+   - **企业名 company**：多企业联办时工号可能跨企业冲突。勾选 `identity_multi_company=true` 则名单含 `company`、登录需带企业名，唯一键含企业名消歧；单企业则 `company` 留空。
+   - CSV 列因此为**可变表头**：`employee_number,name[,company][,phone]`，按勾选解析校验。
+2. 用户登录：**因子化校验**（活动ID 恒来自 path）。必校验 = 名单内 `employee_number` + `name` 全等；按活动配置追加：多企业→`company` 全等、要求手机→**全手机号 `phone_number` 全等**。匹配键 = `(event_id, company_norm, employee_number)`（`company_norm`=单企业时空串）。成功 → upsert participant（staff 路径，复用 `UpsertParticipantFull`）+ 绑定指纹（复用 `ClaimWhitelist` 条件 UPDATE）+ 签发参与者 JWT。"用户ID" = 该名单条目（事件内 `company+employee_number` 唯一）。
+3. **设备解绑（活动方）**：活动方后台可对某名单条目「取消用户设备关联」——清 `claimed_participant_id/fingerprint/jwt_jti/at`、`status→unused`、撤销旧 JWT（jti 失效强制登出）、把旧 `participant.whitelist_entry_id` 置 NULL（保留其历史记录，腾出 `uniq_participant_event_whitelist_entry`），允许用户换设备重新登录；操作审计 `whitelist_unbind`。常与 D3 告警联动（活动方据告警解绑）。
+4. 一号一端：登录写 `claimed_jwt_jti`，旧会话失效（防借号）。**D3 指纹不一致策略**：默认**记录告警**到 `participation_warning`（kind=`fingerprint_mismatch`/`session_takeover`），不阻断；活动方可设 `strict_fingerprint=true` 改为**严格阻断**。告警列表可导出（SS-7）。
+5. 登录硬化：`loginguard` scope `participant:{event_id}`（恒延迟+失败锁定）；可选 Turnstile。
+6. legacy 公开/匿名/external 路径 → `CAPTAIN_OPEN_PARTICIPATION=off` 默认关闭，仅 demo。
 
 **接口**（`/api/v1/p`）
 
 | 方法 路径 | 说明 |
 |---|---|
 | `GET /p/e/{event_id}?et=` | 落地：校验 event_token，回 event 元信息 + flow（**refactor**：不再签 device-session，改返回"需登录") |
-| `POST /p/e/{event_id}/login` | **新增** `{employee_number,name,phone,fingerprint,turnstile_token}` → `{token, participant:{id,name}}`；错误码 `bad_credentials/account_locked/captcha_failed/event_inactive` |
+| `POST /p/e/{event_id}/login` | **新增** `{employee_number,name,company?,phone?,fingerprint,turnstile_token}`（company/phone 按活动配置必填）→ `{token, participant:{id,name}}`；错误码 `bad_credentials/missing_factor/account_locked/captcha_failed/event_inactive` |
 | `POST /p/e/{event_id}/logout` | **新增** 失效当前 jti |
 | `GET /p/e/{event_id}/me` | **新增** 当前参与者 + 流程进度 |
+| `POST /org/events/{id}/whitelist/{entry_id}/unbind` | **新增**（org 域）取消用户设备关联（解绑+撤旧JWT+审计） |
 
-**数据库**：迁移 0008（`event_whitelist_entry.claimed_jwt_jti`）。复用 0003 白名单表/指纹列。
+**数据库**：迁移 0008——`event_whitelist_entry` + `company text`、+ `claimed_jwt_jti text`；**放宽** `phone_number`/`phone_last4` 允许 NULL、删除/改写 `ewe_phone_last4_format` CHECK（手机可选）；**替换唯一键** `uniq_ewe_event_employee` → `UNIQUE(event_id, company_norm, employee_number)`（`company_norm = lower(coalesce(nullif(btrim(company),''),''))`，单企业空串兼容）；`event` + `identity_require_phone bool DEFAULT false`、`identity_multi_company bool DEFAULT false`。复用 0003 指纹列。**注**：0008 含约束变更（非纯 additive），v1 演进期数据可重建则安全；生产有数据按迁移注释处理。
 
-**缓存**：`lg:*`（**复用** loginguard）；`sess:p:{jti}` 撤销标记（logout/顶号，TTL=令牌寿命）。
+**缓存**：`lg:*`（**复用** loginguard）；`sess:p:{jti}` 撤销标记（logout/顶号/解绑，TTL=令牌寿命）。
 
-**与现有代码**：`token` 加 `participant` role + `jti`；`participation` 加登录/登出/me；`identity` 复用（指纹归一+Hash 作防共享信号，写 `participant.fingerprint_hash`）；`loginguard` 加 scope；`repo` 加 `WhitelistByEmployee` 全手机号校验变体 + jti 绑定。
+**与现有代码**：`token` 加 `participant` role + `jti`；`participation` 加登录/登出/me；`identity` 复用（指纹归一+Hash 作防共享信号，写 `participant.fingerprint_hash`）；`loginguard` 加 scope；`repo` 加因子化白名单匹配（按 company/phone 开关组合 WHERE）+ jti 绑定 + 解绑事务（清 claimed_* + null 旧 participant.whitelist_entry_id，复用 `ClaimWhitelist` 条件 UPDATE 反操作范式）；`organizer` 加 unbind 接口（租户校验+审计）；whitelist 导入解析改可变表头。
 
-**决策与假设**：① "用户ID"= 名单条目（工号是业务主键，姓名+全手机号为校验因子，活动ID来自 path）——四元组满足；② 全手机号匹配（比旧 `phone_last4` 强，名单已存全号）；③ 指纹换设备不硬阻断（默认宽松，活动方可设严格）。均可调；②③ 属安全权衡，文档登记，若活动方有合规要求可与 codex 复议。
+**决策与假设（D2 已定）**：① "用户ID"=名单条目，事件内由 `company+employee_number` 唯一；② 手机号**可选增强因子**（活动方导入时勾选，默认不要求，照顾企业合规）；③ 多企业联办用 `company` 消歧并并入唯一键；④ 活动方可解绑设备让用户换机重登（解绑保留旧记录、审计）；⑤ 单企业时 `company` 取空串，键兼容旧单企业场景。均按用户最新指示落定。
 
 ---
 
@@ -242,7 +247,7 @@ lottery.config = { poolsRef:true, prizesRef:true, drawLimit:1, grandPushToScreen
 **D5 顺序门禁（强制）**：在 flow 实际配置的环节中按 R1→R2→R3→R4 顺序硬门禁——某环节启用则必须**完成它**才能进入**下一个已启用环节**（未启用环节自动跳过，门禁链只串已启用项）。引擎据 `step.stage` 与参与者各环节完成态判定准入；越级提交回 `409 stage_gated`。活动方设定 `event.timezone`（默认 `Asia/Shanghai`）决定 R1 多日签到的"日"边界。
 3. R3 题库：活动方导入题目（CSV/JSON：题干、选项、正确项、分值、单/多选）→ `exam_question`。
 4. R4 多奖池配置：奖池/奖项/成员→奖池指派(互斥)/池内内定名单导入，详见 **SS-5**；所有导入即审计。
-5. 名单导入（**保留** whitelist import）。
+5. 名单导入（refactor）：可变表头 `employee_number,name[,company][,phone]`，导入时活动方勾选 `identity_require_phone`/`identity_multi_company`（写入 `event`，校验名单列与勾选一致）；活动方可对名单条目执行**设备解绑**（详见 SS-2）。
 
 **接口**（`/api/v1/org`，活动方 JWT + 租户 + 权限中间件）
 
@@ -361,7 +366,7 @@ lottery.config = { poolsRef:true, prizesRef:true, drawLimit:1, grandPushToScreen
 ## SS-7 活动记录查看与导出
 
 **功能**
-1. 活动方按活动看参与明细，字段**对齐原始需求**：记录ID(`participation.id`)、用户名(`whitelist.name`)、工号(`employee_number`)、手机号(脱敏显示/导出全号)、参与时间(首次/各步)、用户位置(`checkin_day`/`participation` geo)、**用户设备ID**(`participation.device_id`，导出可见)、**用户浏览器指纹**(`participant.fingerprint_hash`，导出可见)、**数据栏一**(`data_field_1` 文本)、**数据栏二**(`data_field_2` OSS 位置→签名链接)。受 `can_view_records` 控制；查看记 PII 审计。
+1. 活动方按活动看参与明细，字段**对齐原始需求**：记录ID(`participation.id`)、用户名(`whitelist.name`)、工号(`employee_number`)、企业名(`whitelist.company`，多企业联办时有值)、手机号(若启用：脱敏显示/导出全号；未启用列为空)、参与时间(首次/各步)、用户位置(`checkin_day`/`participation` geo)、**用户设备ID**(`participation.device_id`，导出可见)、**用户浏览器指纹**(`participant.fingerprint_hash`，导出可见)、**数据栏一**(`data_field_1` 文本)、**数据栏二**(`data_field_2` OSS 位置→签名链接)。受 `can_view_records` 控制；查看记 PII 审计。
 2. 导出：**保留** NATS→CSV→对象存储→签名下载（CSV BOM + 防公式注入 `csvSafe` **保留**）；列对齐上表 + 动态登记字段（**保留** form 键并集）；受 `can_export_records` 控制；导出记审计。
 3. 用户查本人记录：`GET /p/e/{id}/me/records`（参与者 JWT）→ 各 step 记录 + exam 成绩 + 抽奖结果。
 4. **D5 统计**：活动方后台看 参与人数 / 完成人数 / 各环节漏斗（处于 R1/R2/R3/R4/已完成 人数 + 累计到达·完成 Ri）。聚合自 `participation.current_stage`/`completed_all`（索引支撑，2万级低成本 `GROUP BY`）。
@@ -391,14 +396,14 @@ lottery.config = { poolsRef:true, prizesRef:true, drawLimit:1, grandPushToScreen
 
 ## 5. 迁移序列（embedded migrator，单文件单事务，可重入）
 
-`0006` 平台基座 → `0007` 模板 → `0008` 参与者登录+多日签到+活动时区/严格指纹/告警表 → `0009` 考试题库 → `0010` 抽奖+多奖池(pool/membership/prize/rig/result) → `0011` 记录字段+环节漏斗(current_stage/completed_all)。全部 `IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`/`ON CONFLICT`，对空表或既有数据均安全；生产若已有热数据，索引注释延续 0002 的 CONCURRENTLY 提示。
+`0006` 平台基座 → `0007` 模板 → `0008` 参与者登录(企业名/手机可选/唯一键替换)+多日签到+活动时区/严格指纹/告警表 → `0009` 考试题库 → `0010` 抽奖+多奖池(pool/membership/prize/rig/result) → `0011` 记录字段+环节漏斗(current_stage/completed_all)。绝大多数 `IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`/`ON CONFLICT`。**例外**：0008 含约束变更（`event_whitelist_entry` 放宽 phone 非空、删 `ewe_phone_last4_format` CHECK、替换唯一索引为含 `company_norm`），均以 `ALTER ... DROP CONSTRAINT IF EXISTS` / `DROP INDEX IF EXISTS` + 重建实现幂等；演进期 v1 数据可重建故安全，生产有热数据须按 0002 注释思路（CONCURRENTLY 重建唯一索引、分步放宽约束）离线/灰度处理。
 
 ## 6. 决策与假设登记（汇总，均"可调"，标★为敏感/建议 codex 复议触发条件）
 
 | # | 决策 | 默认 | 复议触发 |
 |---|---|---|---|
-| D1 | 参与者非匿名，强身份登录 | 名单+四元组→JWT | — |
-| D2 | "用户ID"=名单条目，四元组=姓名+工号+全手机+活动ID | 全手机号匹配 | 活动方无全手机号数据时 |
+| D1 | 参与者非匿名，强身份登录 | 名单+因子化强身份→JWT | — |
+| D2 | **用户已定**：身份因子化——必校 姓名+工号+活动ID；手机号为可选增强(导入勾选,默认不要求)；多企业联办加企业名消歧并入唯一键；活动方可解绑用户设备(保留记录+审计) | 因子可配，单企业 company 空串兼容 | — |
 | D3 | **用户已定**：指纹不一致默认记告警入参与记录、活动方可导出告警列表；活动方可设严格阻断 | 告警+可导出，严格可选 | — |
 | D4 | **用户已定**：活动时区由活动方设定，默认 Asia/Shanghai；R1 仅配天数 | event.timezone | 要求"指定具体日期签到" |
 | D5 | **用户已定**：顺序门禁(已启用 R1→R2→R3→R4 须逐环节完成)；参与人数(完成≥1启用环节) 与 完成人数(完成全部) 分开；后台看各环节漏斗、每环节必记录 | 双指标+漏斗 | — |
