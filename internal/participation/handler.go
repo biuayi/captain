@@ -145,7 +145,7 @@ func (h *Handler) completeStage(ctx context.Context, eventID, partcpnID, stage s
 	_ = h.Repo.SetStageDone(ctx, partcpnID, stage, next)
 	done[stage] = true
 	if first {
-		h.RT.OnCheckin(ctx, eventID) // participated count (SS-6 renames envelope)
+		h.RT.OnParticipated(ctx, eventID) // D5 participated count (SS-6)
 		h.publish(ctx, "checkin.submitted", map[string]string{
 			"event_id": eventID, "participation_id": partcpnID})
 	}

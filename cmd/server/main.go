@@ -105,6 +105,7 @@ func run() error {
 
 	// background workers
 	go rt.Run(rootCtx)
+	go rt.ConsumePrizes(rootCtx, st.JS)
 	go func() {
 		if err := exp.Run(rootCtx); err != nil {
 			log.Printf("export worker: %v", err)
