@@ -6,6 +6,7 @@ package testdb
 
 import (
 	"context"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -46,10 +47,13 @@ func Pool(t testing.TB) *pgxpool.Pool {
 	return pool
 }
 
-// Redis returns a flushed redis client, or skips if Redis is down.
+// Redis returns a flushed redis client on a per-test isolated logical DB
+// (1..15) so parallel test packages don't FlushDB each other, or skips if
+// Redis is down.
 func Redis(t testing.TB) *redis.Client {
 	t.Helper()
-	rdb := redis.NewClient(&redis.Options{Addr: env("CAPTAIN_TEST_REDIS_ADDR", "localhost:6379")})
+	db := rand.Intn(15) + 1
+	rdb := redis.NewClient(&redis.Options{Addr: env("CAPTAIN_TEST_REDIS_ADDR", "localhost:6379"), DB: db})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := rdb.Ping(ctx).Err(); err != nil {
@@ -57,7 +61,12 @@ func Redis(t testing.TB) *redis.Client {
 		t.Skipf("testdb: no redis (%v)", err)
 	}
 	rdb.FlushDB(ctx)
-	t.Cleanup(func() { _ = rdb.Close() })
+	t.Cleanup(func() {
+		fctx, fcancel := context.WithTimeout(context.Background(), 2*time.Second)
+		rdb.FlushDB(fctx)
+		fcancel()
+		_ = rdb.Close()
+	})
 	return rdb
 }
 
