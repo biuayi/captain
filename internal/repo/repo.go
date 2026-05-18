@@ -759,5 +759,45 @@ func (r *Repo) ListPlatformConfigKeys(ctx context.Context) (map[string]string, e
 	return out, rows.Err()
 }
 
+// ---- SS0-14/16: db_dump export jobs (no tenant/event) ----
+
+func (r *Repo) CreateDBExportJob(ctx context.Context) (string, error) {
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO export_job (kind, format, status)
+		 VALUES ('db_dump','sql','pending') RETURNING id`).Scan(&id)
+	return id, err
+}
+
+// DBExportJob returns a db_dump job by id (super-admin only; no tenant scope).
+func (r *Repo) DBExportJob(ctx context.Context, id string) (domain.ExportJob, error) {
+	var j domain.ExportJob
+	var key, errMsg *string
+	err := r.pg.QueryRow(ctx,
+		`SELECT id, kind, format, status, storage_key, error, requested_at, finished_at
+		   FROM export_job WHERE id=$1 AND kind='db_dump'`, id,
+	).Scan(&j.ID, &j.Kind, &j.Format, &j.Status, &key, &errMsg, &j.RequestedAt, &j.FinishedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return j, ErrNotFound
+	}
+	if key != nil {
+		j.StorageKey = *key
+	}
+	if errMsg != nil {
+		j.Error = *errMsg
+	}
+	return j, err
+}
+
+// ExportJobKind returns the job kind (worker dispatch).
+func (r *Repo) ExportJobKind(ctx context.Context, id string) (string, error) {
+	var kind string
+	err := r.pg.QueryRow(ctx, `SELECT kind FROM export_job WHERE id=$1`, id).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return kind, err
+}
+
 // Pool exposes the pool for seed bootstrapping only.
 func (r *Repo) Pool() *pgxpool.Pool { return r.pg }

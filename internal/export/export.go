@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os/exec"
 	"sort"
 	"time"
 
@@ -25,10 +26,11 @@ type Worker struct {
 	js   jetstream.JetStream
 	repo *repo.Repo
 	st   storage.Storage
+	dsn  string // for pg_dump (db_dump jobs, SS0-15)
 }
 
-func New(js jetstream.JetStream, r *repo.Repo, st storage.Storage) *Worker {
-	return &Worker{js: js, repo: r, st: st}
+func New(js jetstream.JetStream, r *repo.Repo, st storage.Storage, pgDSN string) *Worker {
+	return &Worker{js: js, repo: r, st: st, dsn: pgDSN}
 }
 
 type requestMsg struct {
@@ -70,6 +72,14 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) process(ctx context.Context, jobID string) error {
+	kind, err := w.repo.ExportJobKind(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if kind == "db_dump" {
+		return w.processDBDump(ctx, jobID)
+	}
+
 	eventID, _, err := w.repo.ExportJobBare(ctx, jobID)
 	if err != nil {
 		return err
@@ -163,4 +173,42 @@ func csvSafe(s string) string {
 
 func (w *Worker) fail(ctx context.Context, jobID string, e error) {
 	_ = w.repo.FinishExportJob(ctx, jobID, "failed", "", e.Error())
+}
+
+// processDBDump streams `pg_dump --no-owner` into object storage (SS0-15).
+// Super-admin only; the job carries no tenant/event. pg_dump must be on PATH
+// (a deploy prerequisite; PF-04 gated integration node).
+func (w *Worker) processDBDump(ctx context.Context, jobID string) error {
+	if err := w.repo.SetExportRunning(ctx, jobID); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "pg_dump", "--no-owner", "--no-privileges", w.dsn)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		w.fail(ctx, jobID, err)
+		return nil
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		w.fail(ctx, jobID, fmt.Errorf("pg_dump start: %w (pg_dump on PATH?)", err))
+		return nil
+	}
+	key := "db-exports/" + jobID + ".sql"
+	if _, err := w.st.Put(key, stdout); err != nil {
+		_ = cmd.Wait()
+		w.fail(ctx, jobID, fmt.Errorf("store: %w", err))
+		return nil
+	}
+	if err := cmd.Wait(); err != nil {
+		w.fail(ctx, jobID, fmt.Errorf("pg_dump: %v: %s", err, stderr.String()))
+		return nil
+	}
+	if err := w.repo.FinishExportJob(ctx, jobID, "done", key, ""); err != nil {
+		return err
+	}
+	b, _ := json.Marshal(map[string]string{"job_id": jobID, "status": "done"})
+	_, _ = w.js.Publish(ctx, SubjectCompleted, b)
+	log.Printf("export: db_dump %s done -> %s", jobID, key)
+	return nil
 }

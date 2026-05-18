@@ -57,8 +57,9 @@ type Participant struct {
 
 type ExportJob struct {
 	ID          string     `json:"id"`
-	OrganizerID string     `json:"organizer_id"`
-	EventID     string     `json:"event_id"`
+	Kind        string     `json:"kind"` // participants | db_dump | lottery_audit | warnings
+	OrganizerID string     `json:"organizer_id,omitempty"`
+	EventID     string     `json:"event_id,omitempty"`
 	Format      string     `json:"format"`
 	Status      string     `json:"status"`
 	StorageKey  string     `json:"storage_key,omitempty"`

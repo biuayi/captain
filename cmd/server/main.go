@@ -20,6 +20,7 @@ import (
 	"github.com/hertz/captain/internal/organizer"
 	"github.com/hertz/captain/internal/orgperm"
 	"github.com/hertz/captain/internal/participation"
+	"github.com/hertz/captain/internal/platformcfg"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/seed"
@@ -62,16 +63,36 @@ func run() error {
 
 	sig := token.New(cfg.TokenSecret)
 	r := repo.New(st.PG)
+	orgpc := orgperm.New(st.Redis)
+	// platformcfg resolves secrets DB-first with env fallback (SS0-13).
+	pcfg := platformcfg.New(r, cfg.ConfigKey, func(k string) string {
+		switch k {
+		case "cloudflare_turnstile_sitekey":
+			return cfg.TurnstileSite
+		case "cloudflare_turnstile_secret":
+			return cfg.TurnstileSecret
+		case "aliyun_oss_endpoint":
+			return cfg.OSSEndpoint
+		case "aliyun_oss_bucket":
+			return cfg.OSSBucket
+		case "aliyun_oss_key_id":
+			return cfg.OSSKeyID
+		case "aliyun_oss_key_secret":
+			return cfg.OSSKeySecret
+		}
+		return ""
+	})
+	pget := func(k string) string { v, _ := pcfg.Get(rootCtx, k); return v }
 	strg, err := storage.New(storage.Options{
 		Driver: cfg.StorageDriver, Dir: cfg.StorageDir,
-		OSSEndpoint: cfg.OSSEndpoint, OSSBucket: cfg.OSSBucket,
-		OSSKeyID: cfg.OSSKeyID, OSSKeySecret: cfg.OSSKeySecret,
+		OSSEndpoint: pget("aliyun_oss_endpoint"), OSSBucket: pget("aliyun_oss_bucket"),
+		OSSKeyID: pget("aliyun_oss_key_id"), OSSKeySecret: pget("aliyun_oss_key_secret"),
 	})
 	if err != nil {
 		return err
 	}
 	rt := realtime.New(st.Redis, r)
-	exp := export.New(st.JS, r, strg)
+	exp := export.New(st.JS, r, strg, cfg.PGDSN)
 
 	if cfg.Seed {
 		if err := seed.Run(rootCtx, st.PG, sig, cfg.PublicBaseURL, cfg.SeedAdminPw, cfg.SeedOrgPw); err != nil {
@@ -88,7 +109,7 @@ func run() error {
 	}()
 
 	guard := loginguard.New(st.Redis)
-	ts := turnstile.New(cfg.TurnstileMode, cfg.TurnstileSite, cfg.TurnstileSecret)
+	ts := turnstile.New(cfg.TurnstileMode, pget("cloudflare_turnstile_sitekey"), pget("cloudflare_turnstile_secret"))
 	if ts.Enabled() {
 		log.Printf("turnstile: ENFORCE (sitekey set=%v)", cfg.TurnstileSite != "")
 	} else {
@@ -99,7 +120,8 @@ func run() error {
 		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper, TS: ts}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
 		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts}
-	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts}
+	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts,
+		PC: pcfg, OrgPC: orgpc, Export: exp}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -122,7 +144,6 @@ func run() error {
 	// organizer routes (except login) go through OrgPerm middleware: it
 	// verifies the JWT, enforces the per-route permission and rejects a
 	// stale perm snapshot (SS0-09). Handlers read httpx.OrgClaims.
-	orgpc := orgperm.New(st.Redis)
 	op := func(perm string, h http.HandlerFunc) http.Handler {
 		return httpx.OrgPerm(sig, orgpc, r.OrganizerPermVersion, perm)(h)
 	}
@@ -151,6 +172,14 @@ func run() error {
 	mux.HandleFunc("GET "+apiAdmin+"/organizers", ad.ListOrganizers)
 	mux.HandleFunc("POST "+apiAdmin+"/organizers", ad.CreateOrganizer)
 	mux.HandleFunc("POST "+apiAdmin+"/organizers/{id}/status", ad.SetOrganizerStatus)
+	mux.HandleFunc("DELETE "+apiAdmin+"/organizers/{id}", ad.DeleteOrganizer)
+	mux.HandleFunc("POST "+apiAdmin+"/organizers/{id}/password", ad.ResetOrganizerPassword)
+	mux.HandleFunc("PATCH "+apiAdmin+"/organizers/{id}/permissions", ad.SetOrganizerPermissions)
+	mux.HandleFunc("GET "+apiAdmin+"/config", ad.GetConfig)
+	mux.HandleFunc("PUT "+apiAdmin+"/config/{key}", ad.PutConfig)
+	mux.HandleFunc("GET "+apiAdmin+"/audit", ad.ListAudit)
+	mux.HandleFunc("POST "+apiAdmin+"/db-export", ad.CreateDBExport)
+	mux.HandleFunc("GET "+apiAdmin+"/db-export/{job_id}", ad.DBExportStatus)
 
 	// 正式 UI = check-in-kiosk React（dist 内嵌）；screen 暂用内嵌页待 codex 改版
 	mux.HandleFunc("GET /m/{event_id}", webui.ReactIndex("mobile", ""))
