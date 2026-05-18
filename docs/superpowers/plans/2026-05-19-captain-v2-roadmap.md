@@ -20,11 +20,11 @@
 
 ## Phase P0 — 跨切面基座（先行，所有子系统依赖）
 
-- [ ] **P0-01** token 增 `Role=participant` 常量与校验路径 — Modify `internal/token/token.go` | 验收: 可签发/校验 participant 令牌 | 测试 `internal/token/token_test.go` 新增用例
-- [ ] **P0-02** token Claims 增 `JTI string` + 生成（随机 16B base64url） — Modify `internal/token/token.go` | 验收: Sign 自动填 JTI，Verify 透出 | 测试: 两次 Sign JTI 不同
-- [ ] **P0-03** token Claims 增 `Perm map[string]bool` + `PermVersion int` 字段（omitempty） — Modify `internal/token/token.go` | 验收: 往返序列化保真 | 测试: 编解码断言
-- [ ] **P0-04** 新增 `internal/cryptobox`：AES-256-GCM `Seal/Open(key,plaintext)`，key 来自 32B — Create `internal/cryptobox/cryptobox.go` | 验收: 往返一致、篡改报错 | 测试 `cryptobox_test.go`（含 nonce 唯一、tamper）
-- [ ] **P0-05** config 增 `ConfigKey`(`CAPTAIN_CONFIG_KEY`)、`OpenParticipation`(bool,默认 false) — Modify `internal/config/config.go` | 验收: 默认值正确，弱默认告警 | 测试: env 覆盖
+- [x] **P0-01** token 增 `Role=participant` 常量与校验路径 — Modify `internal/token/token.go` | 验收: 可签发/校验 participant 令牌 | 测试 `internal/token/token_test.go` 新增用例
+- [x] **P0-02** token Claims 增 `JTI string` + 生成（随机 16B base64url） — Modify `internal/token/token.go` | 验收: Sign 自动填 JTI，Verify 透出 | 测试: 两次 Sign JTI 不同
+- [x] **P0-03** token Claims 增 `Perm map[string]bool` + `PermVersion int` 字段（omitempty） — Modify `internal/token/token.go` | 验收: 往返序列化保真 | 测试: 编解码断言
+- [x] **P0-04** 新增 `internal/cryptobox`：AES-256-GCM `Seal/Open(key,plaintext)`，key 来自 32B — Create `internal/cryptobox/cryptobox.go` | 验收: 往返一致、篡改报错 | 测试 `cryptobox_test.go`（含 nonce 唯一、tamper）
+- [x] **P0-05** config 增 `ConfigKey`(`CAPTAIN_CONFIG_KEY`)、`OpenParticipation`(bool,默认 false) — Modify `internal/config/config.go` | 验收: 默认值正确，弱默认告警 | 测试: env 覆盖
 - [ ] **P0-06** httpx 增 `RequestID` 中间件（透传 `X-Request-Id` 或生成）写入 ctx+响应头 — Create `internal/httpx/requestid.go`, Modify `cmd/server/main.go` | 验收: 每响应带 X-Request-Id | 测试: 有/无入站头两路径
 - [ ] **P0-07** httpx 错误信封加 `request_id`（从 ctx 取） — Modify `internal/httpx/response.go` | 验收: Fail 输出含 request_id | 测试: 断言字段
 - [ ] **P0-08** 迁移 0006 文件：`organizer` 加权限位/软删/perm_version + `platform_config` + `audit_log` — Create `internal/store/migrations/0006_platform_base.sql` | 验收: 迁移幂等可重入跑通 | 测试: migrate 后 `\d` 断言列存在
