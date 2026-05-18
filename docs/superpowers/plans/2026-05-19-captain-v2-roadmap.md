@@ -46,8 +46,8 @@
 - [ ] **SS0-05** admin `POST /organizers/{id}/password` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: bcrypt 重置 | 测试: 旧失效新生效
 - [x] **SS0-06** repo `SetOrganizerPermissions(id,perms)` + perm_version+1 + 失效 `perm:org:{id}` — Modify `internal/repo/repo.go` | 验收: 版本自增、缓存失效 | 测试: 版本递增断言
 - [ ] **SS0-07** admin `PATCH /organizers/{id}/permissions` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅 3 个布尔位、即时生效 | 测试: 改后旧 JWT token_stale
-- [ ] **SS0-08** 组织方登录把权限位+perm_version写入 JWT — Modify `internal/organizer/handler.go` | 验收: JWT 携带 Perm/PermVersion | 测试: 解码断言
-- [ ] **SS0-09** organizer 受保护路由挂 `OrgPermMiddleware`（建活动需 can_create_event 等映射表） — Modify `cmd/server/main.go`, `internal/organizer/handler.go` | 验收: 无权限 403 perm_denied | 测试: 权限矩阵
+- [x] **SS0-08** 组织方登录把权限位+perm_version写入 JWT — Modify `internal/organizer/handler.go` | 验收: JWT 携带 Perm/PermVersion | 测试: 解码断言
+- [x] **SS0-09** organizer 受保护路由挂 `OrgPermMiddleware`（建活动需 can_create_event 等映射表） — Modify `cmd/server/main.go`, `internal/organizer/handler.go` | 验收: 无权限 403 perm_denied | 测试: 权限矩阵
 - [x] **SS0-10** repo `platform_config` Upsert/Get（值经 cryptobox 加密、masked 计算） — Modify `internal/repo/repo.go` | 验收: 密文落库、masked 仅尾4 | 测试: 加解密往返
 - [ ] **SS0-11** admin `GET /config`（回各 key set 与 masked，无明文） — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 不泄明文 | 测试: 响应无明文断言
 - [ ] **SS0-12** admin `PUT /config/{key}`（加密写库 + 审计 + 失效 platformcfg 缓存） — Modify `internal/admin/handler.go` | 验收: 写后 GET 显示 set=true | 测试: 往返
