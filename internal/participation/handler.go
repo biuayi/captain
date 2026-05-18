@@ -15,22 +15,27 @@ import (
 	"github.com/hertz/captain/internal/flow"
 	"github.com/hertz/captain/internal/httpx"
 	"github.com/hertz/captain/internal/identity"
+	"github.com/hertz/captain/internal/loginguard"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/token"
 	"github.com/hertz/captain/internal/turnstile"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/redis/go-redis/v9"
 	"github.com/skip2/go-qrcode"
 )
 
 type Handler struct {
-	Repo   *repo.Repo
-	Sig    *token.Signer
-	RT     *realtime.Manager
-	RL     *httpx.RateLimiter
-	JS     jetstream.JetStream
-	Pepper string // REQ-CHANGE-001 fingerprint/participant_key HMAC pepper
-	TS     *turnstile.Verifier
+	Repo       *repo.Repo
+	Sig        *token.Signer
+	RT         *realtime.Manager
+	RL         *httpx.RateLimiter
+	JS         jetstream.JetStream
+	Pepper     string // REQ-CHANGE-001 fingerprint/participant_key HMAC pepper
+	TS         *turnstile.Verifier
+	Guard      *loginguard.Guard // participant login hardening (SS2-06)
+	RDB        *redis.Client     // participant session jti revocation (SS2-08/09)
+	OpenLegacy bool              // CAPTAIN_OPEN_PARTICIPATION: keep anon/device path (SS2-16)
 }
 
 func deviceHash(uuid string) string {
@@ -62,42 +67,43 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deviceUUID := r.URL.Query().Get("d")
-	if deviceUUID == "" {
-		httpx.Fail(w, http.StatusBadRequest, "missing_device", "device id required")
-		return
-	}
-	dh := deviceHash(deviceUUID)
-	// key mint limiter by hashed device so raw d= rotation can't bypass (codex review)
-	if !h.RL.Allow(r.Context(), "mint:dev:"+dh, 10, time.Minute) {
-		httpx.Fail(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
-		return
-	}
-	// session hard-expires at event_end+2h, capped to 8h absolute
-	exp := ev.EndAt.Add(2 * time.Hour)
-	if cap8 := time.Now().Add(8 * time.Hour); exp.After(cap8) {
-		exp = cap8
-	}
-	sess, err := h.Sig.Sign(token.Claims{
-		Kind: token.KindSession, EventID: eventID, DeviceHash: dh,
-		ExpiresAt: exp.Unix(),
-	})
-	if err != nil {
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "sign failed")
-		return
-	}
-	// 经隧道/反代时 TLS 在边缘终止（r.TLS 为 nil），按 X-Forwarded-Proto 判断（review 修复）
-	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-	httpx.SetSessionCookie(w, sess, exp, secure)
-
 	raw, err := h.Repo.FlowSchema(r.Context(), ev.FlowConfigID)
 	if err != nil {
 		httpx.Fail(w, http.StatusInternalServerError, "flow_missing", "flow not found")
 		return
 	}
+
+	// Legacy anon/device-session path, only when explicitly enabled
+	// (CAPTAIN_OPEN_PARTICIPATION, SS2-16). Default model: strong-identity
+	// login (SS2-11) — no cookie minted here, client must POST /login.
+	if h.OpenLegacy {
+		if deviceUUID := r.URL.Query().Get("d"); deviceUUID != "" {
+			dh := deviceHash(deviceUUID)
+			if !h.RL.Allow(r.Context(), "mint:dev:"+dh, 10, time.Minute) {
+				httpx.Fail(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+				return
+			}
+			exp := ev.EndAt.Add(2 * time.Hour)
+			if cap8 := time.Now().Add(8 * time.Hour); exp.After(cap8) {
+				exp = cap8
+			}
+			sess, serr := h.Sig.Sign(token.Claims{
+				Kind: token.KindSession, EventID: eventID, DeviceHash: dh,
+				ExpiresAt: exp.Unix(),
+			})
+			if serr != nil {
+				httpx.Fail(w, http.StatusInternalServerError, "internal", "sign failed")
+				return
+			}
+			secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+			httpx.SetSessionCookie(w, sess, exp, secure)
+		}
+	}
+
 	httpx.JSON(w, http.StatusOK, map[string]any{
-		"event": ev,
-		"flow":  json.RawMessage(raw),
+		"event":      ev,
+		"flow":       json.RawMessage(raw),
+		"need_login": !h.OpenLegacy,
 	})
 }
 

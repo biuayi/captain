@@ -40,17 +40,17 @@ const (
 )
 
 type Claims struct {
-	Kind       string `json:"k"`
-	Subject    string `json:"sub,omitempty"` // organizer/admin id, or device hash
-	EventID    string `json:"eid,omitempty"`
-	Role       string `json:"role,omitempty"` // organizer | admin | participant
-	DeviceHash string `json:"dh,omitempty"`
+	Kind        string          `json:"k"`
+	Subject     string          `json:"sub,omitempty"` // organizer/admin id, or device hash
+	EventID     string          `json:"eid,omitempty"`
+	Role        string          `json:"role,omitempty"` // organizer | admin | participant
+	DeviceHash  string          `json:"dh,omitempty"`
 	JTI         string          `json:"jti,omitempty"`
 	Perm        map[string]bool `json:"perm,omitempty"`
 	PermVersion int             `json:"pv,omitempty"`
 	IssuedAt    int64           `json:"iat"`
-	NotBefore  int64  `json:"nbf,omitempty"`
-	ExpiresAt  int64  `json:"exp"`
+	NotBefore   int64           `json:"nbf,omitempty"`
+	ExpiresAt   int64           `json:"exp"`
 }
 
 type Signer struct{ secret []byte }

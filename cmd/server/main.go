@@ -120,9 +120,10 @@ func run() error {
 	}
 
 	pa := &participation.Handler{Repo: r, Sig: sig, RT: rt,
-		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper, TS: ts}
+		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper, TS: ts,
+		Guard: guard, RDB: st.Redis, OpenLegacy: cfg.OpenParticipation}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
-		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts, TplC: tplc}
+		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts, TplC: tplc, RDB: st.Redis}
 	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts,
 		PC: pcfg, OrgPC: orgpc, Export: exp, Store: strg, TplC: tplc}
 
@@ -133,6 +134,9 @@ func run() error {
 
 	// participation (anonymous, ARCHITECTURE §2)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}", pa.Bootstrap)
+	mux.HandleFunc("POST /api/v1/p/e/{event_id}/login", pa.Login)
+	mux.HandleFunc("POST /api/v1/p/e/{event_id}/logout", pa.Logout)
+	mux.HandleFunc("GET /api/v1/p/e/{event_id}/me", pa.Me)
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/steps/{step_id}/submit", pa.Submit)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/count", pa.Count)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/info", pa.Info)
@@ -162,6 +166,7 @@ func run() error {
 	mux.Handle("GET /api/v1/org/events/{id}/participants", op("can_view_records", og.Participants))
 	mux.Handle("GET /api/v1/org/events/{id}/entry", op("", og.EntryLink))
 	mux.Handle("POST /api/v1/org/events/{id}/whitelist/import", op("can_create_event", og.ImportWhitelist))
+	mux.Handle("POST /api/v1/org/events/{id}/whitelist/{entry_id}/unbind", op("can_create_event", og.UnbindWhitelist))
 	mux.Handle("GET /api/v1/org/events/{id}/whitelist", op("", og.ListWhitelist))
 	mux.Handle("POST /api/v1/org/events/{id}/export", op("can_export_records", og.CreateExport))
 	mux.Handle("GET /api/v1/org/exports/{job_id}", op("", og.ExportStatus))

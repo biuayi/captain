@@ -198,7 +198,7 @@
    - 企业名称 `company` —— **可选**；多企业联办勾 `identity_multi_company`，含企业名消歧并并入唯一键；单企业留空。
    - CSV 可变表头：`employee_number,phone_last4[,name][,phone][,company]`；若提供 `phone`(全号) 则校验/派生 `phone_last4` 一致。
 2. 用户登录：**因子化校验**（活动ID 恒来自 path）。**必校验** = 名单内 `employee_number` 命中 + `phone_last4` 全等（+ 多企业时 `company` 全等定位条目）。**按活动开关追加**：`identity_require_name`→`name` 全等；`identity_require_phone`→全手机号 `phone_number` 全等。匹配键 = `(event_id, company_norm, employee_number)`（`company_norm`=单企业时空串）。成功 → upsert participant（staff 路径，复用 `UpsertParticipantFull`）+ 绑定指纹（复用 `ClaimWhitelist` 条件 UPDATE）+ 签发参与者 JWT。"用户ID" = 该名单条目（事件内 `company+employee_number` 唯一）。
-3. **设备解绑（活动方）**：活动方后台可对某名单条目「取消用户设备关联」——清 `claimed_participant_id/fingerprint/jwt_jti/at`、`status→unused`、撤销旧 JWT（jti 失效强制登出）、把旧 `participant.whitelist_entry_id` 置 NULL（保留其历史记录，腾出 `uniq_participant_event_whitelist_entry`），允许用户换设备重新登录；操作审计 `whitelist_unbind`。常与 D3 告警联动（活动方据告警解绑）。
+3. **设备解绑（活动方）**：活动方后台可对某名单条目「取消用户设备关联」——仅重置该名单条目（清 `claimed_participant_id/fingerprint/jwt_jti/at`、`status→unused`）+ 撤销旧 JWT（jti 失效强制登出）。**不动 participant 行**（staff-shape 约束要求 `whitelist_entry_id` 非空；其历史记录保留）：重登时确定性 `participant_key` 命中同一 participant 并重新 claim 该条目，允许换设备。操作审计 `device_unbind`。常与 D3 告警联动。
 4. 一号一端：登录写 `claimed_jwt_jti`，旧会话失效（防借号）。**D3 指纹不一致策略**：默认**记录告警**到 `participation_warning`（kind=`fingerprint_mismatch`/`session_takeover`），不阻断；活动方可设 `strict_fingerprint=true` 改为**严格阻断**。告警列表可导出（SS-7）。
 5. 登录硬化：`loginguard` scope `participant:{event_id}`（恒延迟+失败锁定）；可选 Turnstile。
 6. legacy 公开/匿名/external 路径 → `CAPTAIN_OPEN_PARTICIPATION=off` 默认关闭，仅 demo。

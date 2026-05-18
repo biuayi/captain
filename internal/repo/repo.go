@@ -554,8 +554,46 @@ func (r *Repo) UpsertParticipantFull(ctx context.Context, p ParticipantUpsert) (
 }
 
 type WLEntry struct {
-	ID, Name, PhoneLast4, Status string
-	ClaimedFP, ClaimedPID        string
+	ID, Name, PhoneLast4, Status      string
+	Company, PhoneNumber              string
+	ClaimedFP, ClaimedPID, ClaimedJTI string
+}
+
+// MatchWhitelistLogin locates a whitelist entry by the login key
+// (event_id, company_norm, employee_number); the handler then verifies
+// phone_last4 plus optional name/phone per the event's identity flags
+// (SS2-05). company_norm must equal identity.CompanyNorm(company).
+func (r *Repo) MatchWhitelistLogin(ctx context.Context, eventID, employeeNumber, companyNorm string) (WLEntry, error) {
+	var e WLEntry
+	var name, phone, cfp, cpid, cjti *string
+	err := r.pg.QueryRow(ctx,
+		`SELECT id, COALESCE(name,''), COALESCE(company,''), COALESCE(phone_number,''),
+		        phone_last4, status,
+		        claimed_fingerprint_hash, claimed_participant_id, claimed_jwt_jti
+		   FROM event_whitelist_entry
+		  WHERE event_id=$1 AND employee_number=$2
+		    AND lower(btrim(coalesce(company,'')))=$3`,
+		eventID, employeeNumber, companyNorm,
+	).Scan(&e.ID, &name, &e.Company, &phone, &e.PhoneLast4, &e.Status, &cfp, &cpid, &cjti)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return e, ErrNotFound
+	}
+	if name != nil {
+		e.Name = *name
+	}
+	if phone != nil {
+		e.PhoneNumber = *phone
+	}
+	if cfp != nil {
+		e.ClaimedFP = *cfp
+	}
+	if cpid != nil {
+		e.ClaimedPID = *cpid
+	}
+	if cjti != nil {
+		e.ClaimedJTI = *cjti
+	}
+	return e, err
 }
 
 func (r *Repo) WhitelistByEmployee(ctx context.Context, eventID, employeeNumber string) (WLEntry, error) {
@@ -610,26 +648,168 @@ func (r *Repo) WhitelistClaimState(ctx context.Context, entryID string) (status,
 }
 
 type WLImportRow struct {
-	EmployeeNumber, Name, Phone, PhoneLast4 string
+	EmployeeNumber, Name, Phone, PhoneLast4, Company string
 }
 
-// InsertWhitelist bulk-inserts entries, skipping duplicates
-// (event_id, employee_number). Returns inserted count.
+// InsertWhitelist bulk-inserts entries, skipping duplicates on the
+// (event_id, company_norm, employee_number) unique key. name/phone are
+// optional (NULL when empty); phone_last4 required (D2). Returns inserted count.
 func (r *Repo) InsertWhitelist(ctx context.Context, eventID, organizerID, batchID string, rows []WLImportRow) (int, error) {
 	n := 0
 	for _, w := range rows {
 		ct, err := r.pg.Exec(ctx,
 			`INSERT INTO event_whitelist_entry
-			   (event_id, organizer_id, employee_number, name, phone_number, phone_last4, import_batch_id)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)
-			 ON CONFLICT (event_id, employee_number) DO NOTHING`,
-			eventID, organizerID, w.EmployeeNumber, w.Name, w.Phone, w.PhoneLast4, batchID)
+			   (event_id, organizer_id, employee_number, name, phone_number,
+			    phone_last4, company, import_batch_id)
+			 VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,NULLIF($7,''),$8)
+			 ON CONFLICT (event_id, (lower(btrim(coalesce(company,'')))), employee_number)
+			 DO NOTHING`,
+			eventID, organizerID, w.EmployeeNumber, w.Name, w.Phone,
+			w.PhoneLast4, w.Company, batchID)
 		if err != nil {
 			return n, err
 		}
 		n += int(ct.RowsAffected())
 	}
 	return n, nil
+}
+
+// ClaimWhitelistWithJTI claims an unused entry for the first device and
+// binds the active session jti (SS2-07; concurrency-safe conditional UPDATE,
+// same pattern as ClaimWhitelist).
+func (r *Repo) ClaimWhitelistWithJTI(ctx context.Context, entryID, participantID, fpHash, jti string) (bool, error) {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE event_whitelist_entry
+		    SET status='claimed', claimed_participant_id=$2,
+		        claimed_fingerprint_hash=$3, claimed_jwt_jti=$4,
+		        claimed_at=now(), updated_at=now()
+		  WHERE id=$1 AND status='unused'
+		    AND claimed_participant_id IS NULL AND claimed_fingerprint_hash IS NULL`,
+		entryID, participantID, fpHash, jti)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() == 1, nil
+}
+
+// SetWhitelistJTI rotates the active session jti for an already-claimed
+// entry (re-login from the bound identity → previous session invalidated).
+func (r *Repo) SetWhitelistJTI(ctx context.Context, entryID, jti string) error {
+	_, err := r.pg.Exec(ctx,
+		`UPDATE event_whitelist_entry SET claimed_jwt_jti=$2, updated_at=now()
+		  WHERE id=$1`, entryID, jti)
+	return err
+}
+
+// UnbindWhitelist releases a device binding so the user can re-login from a
+// new device: clears claimed_*, resets status, and detaches the old
+// participant (records retained) freeing the partial unique index (SS2-14).
+func (r *Repo) UnbindWhitelist(ctx context.Context, entryID, organizerID string) (oldJTI string, err error) {
+	tx, err := r.pg.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var jti *string
+	err = tx.QueryRow(ctx,
+		`SELECT claimed_jwt_jti FROM event_whitelist_entry
+		  WHERE id=$1 AND organizer_id=$2 FOR UPDATE`,
+		entryID, organizerID).Scan(&jti)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	// Reset only the entry. The participant row keeps whitelist_entry_id
+	// (staff-shape constraint) and its records; on re-login the deterministic
+	// participant_key resolves to the same participant and re-claims the now
+	// unused entry — no detach needed (SS2-14).
+	if _, err = tx.Exec(ctx,
+		`UPDATE event_whitelist_entry
+		    SET status='unused', claimed_participant_id=NULL,
+		        claimed_fingerprint_hash=NULL, claimed_jwt_jti=NULL,
+		        claimed_at=NULL, updated_at=now()
+		  WHERE id=$1`, entryID); err != nil {
+		return "", err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	if jti != nil {
+		oldJTI = *jti
+	}
+	return oldJTI, nil
+}
+
+// EventIdentity returns the identity-factor config for an event (SS2-04/07).
+type EventIdentity struct {
+	Timezone          string
+	StrictFingerprint bool
+	RequireName       bool
+	RequirePhone      bool
+	MultiCompany      bool
+}
+
+func (r *Repo) EventIdentity(ctx context.Context, eventID string) (EventIdentity, error) {
+	var e EventIdentity
+	err := r.pg.QueryRow(ctx,
+		`SELECT timezone, strict_fingerprint, identity_require_name,
+		        identity_require_phone, identity_multi_company
+		   FROM event WHERE id=$1`, eventID,
+	).Scan(&e.Timezone, &e.StrictFingerprint, &e.RequireName, &e.RequirePhone, &e.MultiCompany)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return e, ErrNotFound
+	}
+	return e, err
+}
+
+// SetEventIdentityFlags persists the identity-factor switches (SS2-04;
+// tenant-scoped). Returns ErrNotFound if not this organizer's event.
+func (r *Repo) SetEventIdentityFlags(ctx context.Context, eventID, organizerID string, reqName, reqPhone, multiCompany bool) error {
+	ct, err := r.pg.Exec(ctx,
+		`UPDATE event SET identity_require_name=$3, identity_require_phone=$4,
+		        identity_multi_company=$5
+		  WHERE id=$1 AND organizer_id=$2`,
+		eventID, organizerID, reqName, reqPhone, multiCompany)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ParticipantActiveJTI returns the whitelist entry's current session jti for
+// a participant (顶号 check, SS2-09). "" if unbound.
+func (r *Repo) ParticipantActiveJTI(ctx context.Context, participantID string) (string, error) {
+	var jti *string
+	err := r.pg.QueryRow(ctx,
+		`SELECT e.claimed_jwt_jti
+		   FROM participant p
+		   JOIN event_whitelist_entry e ON e.id = p.whitelist_entry_id
+		  WHERE p.id=$1`, participantID).Scan(&jti)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if jti == nil {
+		return "", err
+	}
+	return *jti, err
+}
+
+// AddWarning appends a D3 participation warning (participation_id optional).
+func (r *Repo) AddWarning(ctx context.Context, participationID *string, eventID, kind string, detail map[string]any) error {
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	b, _ := json.Marshal(detail)
+	_, err := r.pg.Exec(ctx,
+		`INSERT INTO participation_warning (participation_id, event_id, kind, detail)
+		 VALUES ($1,$2,$3,$4::jsonb)`, participationID, eventID, kind, b)
+	return err
 }
 
 type WLRow struct {

@@ -74,7 +74,7 @@
 
 ## Phase SS-2 — 参与者身份与登录
 
-- [ ] **SS2-01** 迁移 0008：whitelist + `company`/`claimed_jwt_jti`；放宽 `phone_number`/`name` 可空、保留 `phone_last4` 必填；替换唯一键含 `company_norm`；event + `identity_require_name/require_phone/multi_company`/`timezone`/`strict_fingerprint` — Create `internal/store/migrations/0008_identity_factors.sql` | 验收: 约束变更幂等(DROP IF EXISTS+重建)、单企业空串键兼容 | 测试: 迁移后约束/唯一键断言
+- [x] **SS2-01** 迁移 0008：whitelist + `company`/`claimed_jwt_jti`；放宽 `phone_number`/`name` 可空、保留 `phone_last4` 必填；替换唯一键含 `company_norm`；event + `identity_require_name/require_phone/multi_company`/`timezone`/`strict_fingerprint` — Create `internal/store/migrations/0008_identity_factors.sql` | 验收: 约束变更幂等(DROP IF EXISTS+重建)、单企业空串键兼容 | 测试: 迁移后约束/唯一键断言
 - [ ] **SS2-02** identity 增 `company_norm(s)`（lower(trim) 空串归一） — Modify `internal/identity/identity.go` | 验收: 归一正确 | 测试: 多用例
 - [ ] **SS2-03** repo whitelist 导入改可变表头解析 `employee_number,phone_last4[,name][,phone][,company]`；给全号则派生/校验后4位 — Modify `internal/repo/repo.go`, `internal/organizer/handler.go`(ImportWhitelist) | 验收: 缺必填行跳过并计数；冲突 ON CONFLICT | 测试: 各列组合
 - [ ] **SS2-04** organizer 导入时写 event 身份开关(`identity_require_*`/`multi_company`)并校验名单列与开关一致 — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 列/开关不一致 400 | 测试: 一致/不一致
