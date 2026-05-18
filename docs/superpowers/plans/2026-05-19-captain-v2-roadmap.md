@@ -28,14 +28,14 @@
 - [x] **P0-06** httpx 增 `RequestID` 中间件（透传 `X-Request-Id` 或生成）写入 ctx+响应头 — Create `internal/httpx/requestid.go`, Modify `cmd/server/main.go` | 验收: 每响应带 X-Request-Id | 测试: 有/无入站头两路径
 - [x] **P0-07** httpx 错误信封加 `request_id`（从 ctx 取） — Modify `internal/httpx/response.go` | 验收: Fail 输出含 request_id | 测试: 断言字段
 - [x] **P0-08** 迁移 0006 文件：`organizer` 加权限位/软删/perm_version + `platform_config` + `audit_log` — Create `internal/store/migrations/0006_platform_base.sql` | 验收: 迁移幂等可重入跑通 | 测试: migrate 后 `\d` 断言列存在
-- [ ] **P0-09** 新增 `internal/audit`：`Repo.Append(ctx, entry)` 写 `audit_log`（append-only） — Create `internal/audit/audit.go`, Modify `internal/repo/repo.go` | 验收: 落库成功 | 测试: 插入+查询
-- [ ] **P0-10** audit 查询 `List(action,from,to,limit)` — Modify `internal/repo/repo.go` | 验收: 过滤+倒序 | 测试: 多条过滤断言
-- [ ] **P0-11** 新增 `internal/platformcfg`：读 `platform_config` 解密 + 进程内缓存 + env fallback — Create `internal/platformcfg/platformcfg.go` | 验收: DB 有则用 DB，无则 env | 测试: 两路径
+- [x] **P0-09** 新增 `internal/audit`：`Repo.Append(ctx, entry)` 写 `audit_log`（append-only） — Create `internal/audit/audit.go`, Modify `internal/repo/repo.go` | 验收: 落库成功 | 测试: 插入+查询
+- [x] **P0-10** audit 查询 `List(action,from,to,limit)` — Modify `internal/repo/repo.go` | 验收: 过滤+倒序 | 测试: 多条过滤断言
+- [x] **P0-11** 新增 `internal/platformcfg`：读 `platform_config` 解密 + 进程内缓存 + env fallback — Create `internal/platformcfg/platformcfg.go` | 验收: DB 有则用 DB，无则 env | 测试: 两路径
 - [x] **P0-12** httpx 新增统一鉴权辅助 `AuthClaims(r, sig, role)` 复用三域 — Create `internal/httpx/authz.go` | 验收: 角色不符返回 false | 测试: 角色矩阵
 - [x] **P0-13** httpx 新增 `OrgPermMiddleware`（校验 JWT.Perm + Redis perm_version，新鲜则放行，过期回 `token_stale`） — Create `internal/httpx/orgperm.go` | 验收: 版本不一致 401 token_stale；Redis 挂 fail-open 信任 JWT | 测试: 三路径
 - [x] **P0-14** repo 增 `OrganizerPermVersion(ctx,id)` + Redis `perm:org:{id}` 读写封装 — Modify `internal/repo/repo.go`, `internal/loginguard`? 否→ Create `internal/orgperm/cache.go` | 验收: 读写一致、缺省=1 | 测试: 命中/回源
 - [x] **P0-15** 测试基建：`internal/store` 测试用迁移跑库 helper（docker compose pg）+ `scripts/testdb.sh` — Create `scripts/testdb.sh` | 验收: 一键起测试库跑迁移 | 测试: 脚本退出码 0
-- [ ] **P0-16** P0 阶段验收：build/vet/test 全绿 + 提交基座 — | 验收: CI 三连绿 | 测试: 全量 `go test ./...`
+- [x] **P0-16** P0 阶段验收：build/vet/test 全绿 + 提交基座 — | 验收: CI 三连绿 | 测试: 全量 `go test ./...`
 
 ## Phase SS-0 — 平台基座（超管：账号/权限/配置/DB导出/审计）
 
@@ -48,7 +48,7 @@
 - [ ] **SS0-07** admin `PATCH /organizers/{id}/permissions` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅 3 个布尔位、即时生效 | 测试: 改后旧 JWT token_stale
 - [ ] **SS0-08** 组织方登录把权限位+perm_version写入 JWT — Modify `internal/organizer/handler.go` | 验收: JWT 携带 Perm/PermVersion | 测试: 解码断言
 - [ ] **SS0-09** organizer 受保护路由挂 `OrgPermMiddleware`（建活动需 can_create_event 等映射表） — Modify `cmd/server/main.go`, `internal/organizer/handler.go` | 验收: 无权限 403 perm_denied | 测试: 权限矩阵
-- [ ] **SS0-10** repo `platform_config` Upsert/Get（值经 cryptobox 加密、masked 计算） — Modify `internal/repo/repo.go` | 验收: 密文落库、masked 仅尾4 | 测试: 加解密往返
+- [x] **SS0-10** repo `platform_config` Upsert/Get（值经 cryptobox 加密、masked 计算） — Modify `internal/repo/repo.go` | 验收: 密文落库、masked 仅尾4 | 测试: 加解密往返
 - [ ] **SS0-11** admin `GET /config`（回各 key set 与 masked，无明文） — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 不泄明文 | 测试: 响应无明文断言
 - [ ] **SS0-12** admin `PUT /config/{key}`（加密写库 + 审计 + 失效 platformcfg 缓存） — Modify `internal/admin/handler.go` | 验收: 写后 GET 显示 set=true | 测试: 往返
 - [ ] **SS0-13** turnstile/storage 启动改经 platformcfg 取凭据（env fallback） — Modify `cmd/server/main.go`, `internal/turnstile`, `internal/storage` 装配 | 验收: DB 配置优先生效 | 测试: 注入桩

@@ -1,21 +1,27 @@
 # 进度看板 — captain 服务端 v2 重做
 
-> 单一权威设计 = [`docs/DESIGN.md`](DESIGN.md)（2026-05-19，取代全部旧文档）。
-> 工作方式：演进式重构；DESIGN.md → 200+ 实现级任务（writing-plans）→ 逐任务实现+自测+commit。
-> 旧需求/架构/REQ-CHANGE/HISTORY/REVIEW/openapi 已移出工作区（git 历史留底）。
+> 单一权威设计 = [`docs/DESIGN.md`](DESIGN.md)。任务索引/勾选 = [`docs/superpowers/plans/2026-05-19-captain-v2-roadmap.md`](superpowers/plans/2026-05-19-captain-v2-roadmap.md)。
+> 自主执行中：subagent/直接 TDD，逐任务 commit，状态以 git + 路线图勾选为准（跨上下文可续）。
+> 续点 = 路线图中第一个 `- [ ]` 未勾选项。基础设施：`scripts/testdb.sh up`（pg/redis/nats）。
 
-## 状态
+## 阶段状态
 
 | 阶段 | 状态 |
 |---|---|
-| 全量精读现有代码 | DONE |
-| 权威设计 docs/DESIGN.md | DONE（待用户过目） |
-| 清理遗留文档 | DONE |
-| 拆 200+ 实现任务（writing-plans） | TODO |
-| 自主实现 + 自测 + 逐任务 commit | TODO |
+| 探查/设计/路线图 | DONE（74aa371..47c03d7） |
+| **P0 跨切面基座（16）** | **DONE**（token/cryptobox/config/httpx-reqid/orgperm/authz/迁移0006/audit/platformcfg/testdb；build·vet·test ./... 全绿，真库验证） |
+| SS-0 平台基座（19，SS0-10 已并入 P0） | 进行中（续：SS0-01..09,11..19） |
+| SS-1 模板（10） | TODO |
+| SS-2 身份与登录（17） | TODO |
+| SS-3 编排（15） | TODO |
+| SS-4 运行时 R1/R2/R3（15） | TODO |
+| SS-5 抽奖多奖池（14） | TODO |
+| SS-6 大屏（7） | TODO |
+| SS-7 记录与导出（11） | TODO |
+| PF 集成/E2E/收尾（6） | TODO |
 
-## 子系统依赖链（实现排程）
+## 续做说明
 
-`SS-0 基座 → SS-1 模板 / SS-2 身份 → SS-3 编排 → SS-4 运行时R1-R3 → SS-5 抽奖R4/AB → SS-6 大屏 → SS-7 记录导出`
-
-任务清单由 writing-plans 生成后在此登记（编号、状态、验收点、对应 commit）。
+- 验收基线每阶段尾跑 `go build ./... && go vet ./... && go test ./...`（含 docker pg/redis/nats）。
+- DB 测试用 `internal/testdb`，无基础设施时 `t.Skip` 保持离线绿。
+- 决策记 DESIGN §6；无法决策项与 codex 读原始需求后定（暂无）。
