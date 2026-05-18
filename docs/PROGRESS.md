@@ -14,8 +14,8 @@
 | SS-1 模板（10） | DONE（迁移0007/storage SignedURL/admin模板CRUD+资源/org可见性+缓存；真库全绿） |
 | SS-2 身份与登录（17） | DONE（迁移0008/因子登录/顶号/解绑/D3严格/legacy门控；登录流集成测试真库全绿） |
 | SS-3 编排（15） | DONE（flow v2/exam/多奖池配置/event config；repo+迁移+flow 测试真库全绿） |
-| SS-4 运行时 R1/R2/R3（15） | 进行中 |
-| SS-5 抽奖多奖池（14） | TODO |
+| SS-4 运行时 R1/R2/R3（15） | DONE（迁移0011/JWT提交/D5门禁/R1多日/R2上传/R3计分/漏斗；运行时集成测试真库全绿） |
+| SS-5 抽奖多奖池（14） | 进行中 |
 | SS-6 大屏（7） | TODO |
 | SS-7 记录与导出（11） | TODO |
 | PF 集成/E2E/收尾（6） | TODO |
