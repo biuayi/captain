@@ -61,16 +61,16 @@
 
 ## Phase SS-1 — 模板注册与分发
 
-- [ ] **SS1-01** 迁移 0007：`template` + `template_asset` + `event.flow_template_code` — Create `internal/store/migrations/0007_templates.sql` | 验收: 幂等跑通 | 测试: 列断言
-- [ ] **SS1-02** domain `Template`/`TemplateAsset` — Modify `internal/domain/models.go` | 验收: 字段齐 | 测试: 编译
-- [ ] **SS1-03** storage 接口加 `SignedURL(key, ttl)`（local=代理下载 token；aliyun=OSS 私有签名） — Modify `internal/storage/storage.go`, `storage_aliyun.go` | 验收: 两驱动可签 | 测试: local 桩、aliyun 接口契约
-- [ ] **SS1-04** repo 模板 CRUD（create/list by kind/update status/soft delete，全局 vs 租户定制可见性） — Modify `internal/repo/repo.go` | 验收: 可见性正确 | 测试: 全局+租户混合
-- [ ] **SS1-05** admin `GET/POST /templates` `PUT /templates/{id}` `DELETE /templates/{id}` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅超管、状态机 | 测试: 鉴权+流转
-- [ ] **SS1-06** asset 上传 `POST /templates/{id}/assets`（multipart，MIME/大小白名单）→ storage — Modify `internal/admin/handler.go` | 验收: 非白名单 415 | 测试: 合法/非法 MIME
-- [ ] **SS1-07** organizer `GET /org/templates?kind=`（全局 published ∪ 本租户 published） — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 越租户不可见 | 测试: 隔离断言
-- [ ] **SS1-08** event 创建/更新校验 `screen_template_code`/`flow_template_code` ∈ 可选集 — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 非法模板 400 | 测试: 合法/非法
-- [ ] **SS1-09** Redis `tpl:list:{kind}` 缓存 + 写失效 — Modify `internal/repo` 或 Create `internal/templatecache` | 验收: 命中/失效正确，fail-open | 测试: 命中+写后失效
-- [ ] **SS1-10** SS-1 阶段验收：build/vet/test + smoke（超管传模板/活动方选模板）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
+- [x] **SS1-01** 迁移 0007：`template` + `template_asset` + `event.flow_template_code` — Create `internal/store/migrations/0007_templates.sql` | 验收: 幂等跑通 | 测试: 列断言
+- [x] **SS1-02** domain `Template`/`TemplateAsset` — Modify `internal/domain/models.go` | 验收: 字段齐 | 测试: 编译
+- [x] **SS1-03** storage 接口加 `SignedURL(key, ttl)`（local=代理下载 token；aliyun=OSS 私有签名） — Modify `internal/storage/storage.go`, `storage_aliyun.go` | 验收: 两驱动可签 | 测试: local 桩、aliyun 接口契约
+- [x] **SS1-04** repo 模板 CRUD（create/list by kind/update status/soft delete，全局 vs 租户定制可见性） — Modify `internal/repo/repo.go` | 验收: 可见性正确 | 测试: 全局+租户混合
+- [x] **SS1-05** admin `GET/POST /templates` `PUT /templates/{id}` `DELETE /templates/{id}` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅超管、状态机 | 测试: 鉴权+流转
+- [x] **SS1-06** asset 上传 `POST /templates/{id}/assets`（multipart，MIME/大小白名单）→ storage — Modify `internal/admin/handler.go` | 验收: 非白名单 415 | 测试: 合法/非法 MIME
+- [x] **SS1-07** organizer `GET /org/templates?kind=`（全局 published ∪ 本租户 published） — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 越租户不可见 | 测试: 隔离断言
+- [x] **SS1-08** event 创建/更新校验 `screen_template_code`/`flow_template_code` ∈ 可选集 — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 非法模板 400 | 测试: 合法/非法
+- [x] **SS1-09** Redis `tpl:list:{kind}` 缓存 + 写失效 — Modify `internal/repo` 或 Create `internal/templatecache` | 验收: 命中/失效正确，fail-open | 测试: 命中+写后失效
+- [x] **SS1-10** SS-1 阶段验收：build/vet/test + smoke（超管传模板/活动方选模板）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
 
 ## Phase SS-2 — 参与者身份与登录
 
