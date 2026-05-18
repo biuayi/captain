@@ -130,20 +130,20 @@
 
 ## Phase SS-5 — 在线抽奖（多奖池/池内内定/审计）
 
-- [ ] **SS5-01** 新增 `internal/lottery`：纯函数 `Resolve(pool, rig, prizesRemaining, rng)` → (prize|miss, resolvedBy) — Create `internal/lottery/lottery.go` | 验收: 内定优先、池内加权随机、空库存→miss | 测试 `lottery_test.go` 算法矩阵
-- [ ] **SS5-02** repo 用户奖池定位（membership→pool；缺失→is_default；仍无→nil） — Modify `internal/repo/repo.go` | 验收: 三路径 | 测试: 各路径
-- [ ] **SS5-03** repo 原子扣库存 `DrawPrize`：`UPDATE lottery_prize SET drawn=drawn+1 WHERE id=? AND pool_id=? AND drawn<stock RETURNING`（复用条件 UPDATE 范式） — Modify `internal/repo/repo.go` | 验收: 并发不超卖 | 测试: 高并发竞争(N goroutine) 总中=库存
-- [ ] **SS5-04** repo `lottery_result` 幂等 upsert（UNIQUE(event,step,participant)） + 命中内定占用记录 — Modify `internal/repo/repo.go` | 验收: 重复抽返回同结果 | 测试: 重复请求一致
-- [ ] **SS5-05** participation `POST /p/e/{id}/steps/{step}/draw`：门禁→Redis `lot:lock` SETNX 快路径→事务结算→审计→（grand 时 publish prize.won） — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 一人一抽幂等 | 测试: 并发同人仅一抽
-- [ ] **SS5-06** participation `GET /p/e/{id}/steps/{step}/result` — Modify `internal/participation/handler.go` | 验收: 返回本人结果 | 测试: 鉴权+内容
-- [ ] **SS5-07** audit：每抽 append `lottery_draw`(pool/resolved_by/prize) — Modify `internal/participation/handler.go`, `internal/audit` | 验收: 每抽一条 | 测试: 计数断言
-- [ ] **SS5-08** organizer `GET /org/events/{id}/lottery/summary`（各池余量/分布/内定命中，审计访问） — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 数字正确 | 测试: 构造数据断言
-- [ ] **SS5-09** lottery 审计导出：export_job kind=lottery_audit → CSV(逐人逐步) → storage → 签名 — Modify `internal/export/export.go`, `internal/repo/repo.go` | 验收: CSV 全量 + 防注入 | 测试: 行数/内容
-- [ ] **SS5-10** organizer `POST /org/events/{id}/lottery/audit/export` `GET` 状态 + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 流转+下载 | 测试: 状态机
-- [ ] **SS5-11** Redis `lot:stock:*` 热读余量（PG 为准、fail-open） — Modify `internal/repo` 或 `internal/lottery` 缓存层 | 验收: 展示值近似、回源准确 | 测试: 缓存/回源
-- [ ] **SS5-12** 未指派且无默认池 → resolved_by=miss + 告警审计 — Modify `internal/participation/handler.go` | 验收: miss 路径 | 测试: 无池场景
-- [ ] **SS5-13** 新增 `cmd/lotterystress` 抽奖并发压测器 — Create `cmd/lotterystress/main.go` | 验收: 不超卖、幂等 | 测试: 跑通报告
-- [ ] **SS5-14** SS-5 阶段验收：build/vet/test + 并发竞争测试 + smoke（多池/内定/随机/审计导出）全绿 — | 验收: 三连绿+竞争+smoke | 测试: smoke 段
+- [x] **SS5-01** 新增 `internal/lottery`：纯函数 `Resolve(pool, rig, prizesRemaining, rng)` → (prize|miss, resolvedBy) — Create `internal/lottery/lottery.go` | 验收: 内定优先、池内加权随机、空库存→miss | 测试 `lottery_test.go` 算法矩阵
+- [x] **SS5-02** repo 用户奖池定位（membership→pool；缺失→is_default；仍无→nil） — Modify `internal/repo/repo.go` | 验收: 三路径 | 测试: 各路径
+- [x] **SS5-03** repo 原子扣库存 `DrawPrize`：`UPDATE lottery_prize SET drawn=drawn+1 WHERE id=? AND pool_id=? AND drawn<stock RETURNING`（复用条件 UPDATE 范式） — Modify `internal/repo/repo.go` | 验收: 并发不超卖 | 测试: 高并发竞争(N goroutine) 总中=库存
+- [x] **SS5-04** repo `lottery_result` 幂等 upsert（UNIQUE(event,step,participant)） + 命中内定占用记录 — Modify `internal/repo/repo.go` | 验收: 重复抽返回同结果 | 测试: 重复请求一致
+- [x] **SS5-05** participation `POST /p/e/{id}/steps/{step}/draw`：门禁→Redis `lot:lock` SETNX 快路径→事务结算→审计→（grand 时 publish prize.won） — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 一人一抽幂等 | 测试: 并发同人仅一抽
+- [x] **SS5-06** participation `GET /p/e/{id}/steps/{step}/result` — Modify `internal/participation/handler.go` | 验收: 返回本人结果 | 测试: 鉴权+内容
+- [x] **SS5-07** audit：每抽 append `lottery_draw`(pool/resolved_by/prize) — Modify `internal/participation/handler.go`, `internal/audit` | 验收: 每抽一条 | 测试: 计数断言
+- [x] **SS5-08** organizer `GET /org/events/{id}/lottery/summary`（各池余量/分布/内定命中，审计访问） — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 数字正确 | 测试: 构造数据断言
+- [x] **SS5-09** lottery 审计导出：export_job kind=lottery_audit → CSV(逐人逐步) → storage → 签名 — Modify `internal/export/export.go`, `internal/repo/repo.go` | 验收: CSV 全量 + 防注入 | 测试: 行数/内容
+- [x] **SS5-10** organizer `POST /org/events/{id}/lottery/audit/export` `GET` 状态 + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 流转+下载 | 测试: 状态机
+- [x] **SS5-11** Redis `lot:stock:*` 热读余量（PG 为准、fail-open） — Modify `internal/repo` 或 `internal/lottery` 缓存层 | 验收: 展示值近似、回源准确 | 测试: 缓存/回源
+- [x] **SS5-12** 未指派且无默认池 → resolved_by=miss + 告警审计 — Modify `internal/participation/handler.go` | 验收: miss 路径 | 测试: 无池场景
+- [x] **SS5-13** 新增 `cmd/lotterystress` 抽奖并发压测器 — Create `cmd/lotterystress/main.go` | 验收: 不超卖、幂等 | 测试: 跑通报告
+- [x] **SS5-14** SS-5 阶段验收：build/vet/test + 并发竞争测试 + smoke（多池/内定/随机/审计导出）全绿 — | 验收: 三连绿+竞争+smoke | 测试: smoke 段
 
 ## Phase SS-6 — 活动大屏实时服务
 
