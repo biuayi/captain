@@ -14,10 +14,10 @@ import (
 
 	"github.com/hertz/captain/internal/flow"
 	"github.com/hertz/captain/internal/httpx"
-	"github.com/hertz/captain/internal/identity"
 	"github.com/hertz/captain/internal/loginguard"
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
+	"github.com/hertz/captain/internal/storage"
 	"github.com/hertz/captain/internal/token"
 	"github.com/hertz/captain/internal/turnstile"
 	"github.com/nats-io/nats.go/jetstream"
@@ -35,6 +35,7 @@ type Handler struct {
 	TS         *turnstile.Verifier
 	Guard      *loginguard.Guard // participant login hardening (SS2-06)
 	RDB        *redis.Client     // participant session jti revocation (SS2-08/09)
+	Store      storage.Storage   // R2 uploads → object storage (SS4-06)
 	OpenLegacy bool              // CAPTAIN_OPEN_PARTICIPATION: keep anon/device path (SS2-16)
 }
 
@@ -107,116 +108,74 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// session resolves the device-session cookie for a given event.
-func (h *Handler) session(w http.ResponseWriter, r *http.Request, eventID string) (token.Claims, bool) {
-	c, err := h.Sig.Verify(httpx.SessionToken(r), token.KindSession)
-	if err != nil || c.EventID != eventID {
-		httpx.Fail(w, http.StatusUnauthorized, "no_session", "no valid session")
-		return token.Claims{}, false
-	}
-	return c, true
-}
-
+// submitReq is the step submission body (SS-4; identity now via JWT).
 type submitReq struct {
-	Fields map[string]any `json:"fields"` // form
-	Answer *int           `json:"answer"` // game
-	Pledge bool           `json:"pledge"` // charity
-
-	// REQ-CHANGE-001 (optional; absent => legacy device-session identity,
-	// keeps the existing demo / load path working — additive integration).
-	ParticipantType string            `json:"participant_type"` // staff | external
-	Fingerprint     *identity.Signals `json:"fingerprint"`
-	Name            string            `json:"name"`
-	EmployeeNumber  string            `json:"employee_number"`
-	PhoneLast4      string            `json:"phone_last4"`
-	Turnstile       string            `json:"turnstile_token"` // REQ-CHANGE-004
-	Geo             *struct {
+	Fields    map[string]any   `json:"fields"`          // form (R2)
+	Answers   map[string][]int `json:"answers"`         // exam (R3): qIdx -> picked option idxs
+	Answer    *int             `json:"answer"`          // game (legacy)
+	Pledge    bool             `json:"pledge"`          // charity
+	Turnstile string           `json:"turnstile_token"` // checkin captcha
+	Geo       *struct {
 		Lat      float64 `json:"lat"`
 		Lng      float64 `json:"lng"`
 		Accuracy float64 `json:"accuracy"`
-	} `json:"geo"` // REQ-CHANGE-002 T-080（可选）
+	} `json:"geo"` // checkin location (optional)
 }
 
-// resolveIdentity implements the staff/external branches (codex algorithm).
-// Returns participantID, participationID, or an error code string.
-func (h *Handler) resolveIdentity(ctx context.Context, eventID string, b submitReq) (pid, partcpn, code string) {
-	payload, err := identity.Normalize(*b.Fingerprint)
-	if err != nil {
-		return "", "", identity.ErrBadFingerprint
+// nextEnabledStage returns the enabled stage after `stage`, or "" if none.
+func nextEnabledStage(fl *flow.Flow, stage string) string {
+	en := fl.EnabledStages()
+	for i, s := range en {
+		if s == stage && i+1 < len(en) {
+			return en[i+1]
+		}
 	}
-	fp := identity.Hash(h.Pepper, payload)
+	return ""
+}
 
-	if b.ParticipantType == "staff" {
-		emp := strings.TrimSpace(b.EmployeeNumber)
-		e, err := h.Repo.WhitelistByEmployee(ctx, eventID, emp)
-		if err != nil || strings.TrimSpace(e.Name) != strings.TrimSpace(b.Name) {
-			return "", "", identity.ErrStaffNotInWhitelist
-		}
-		if e.Status == "blocked" {
-			return "", "", identity.ErrEntryBlocked
-		}
-		if e.Status == "claimed" && e.ClaimedFP != fp {
-			return "", "", identity.ErrEntryClaimedElsewhere
-		}
-		if e.Status == "unused" && strings.TrimSpace(b.PhoneLast4) != e.PhoneLast4 {
-			return "", "", identity.ErrPhoneMismatch
-		}
-		key := identity.ParticipantKey(h.Pepper, "staff", eventID, e.ID)
-		entryID := e.ID
-		pid, _, err = h.Repo.UpsertParticipantFull(ctx, repo.ParticipantUpsert{
-			EventID: eventID, ParticipantKey: key, IdentityType: "staff_whitelist",
-			ParticipantType: "staff", FingerprintHash: fp, WhitelistEntryID: &entryID,
-		})
-		if err != nil {
-			return "", "", "db"
-		}
-		if e.Status == "unused" {
-			won, err := h.Repo.ClaimWhitelist(ctx, e.ID, pid, fp)
-			if err != nil {
-				return "", "", "db"
-			}
-			if !won {
-				st, cpid, cfp, _ := h.Repo.WhitelistClaimState(ctx, e.ID)
-				if st == "blocked" {
-					return "", "", identity.ErrEntryBlocked
-				}
-				if !(cfp == fp && cpid == pid) {
-					return "", "", identity.ErrEntryClaimedElsewhere
-				}
-			}
-		}
-	} else { // external
-		key := identity.ParticipantKey(h.Pepper, "external", eventID, fp)
-		var err error
-		pid, _, err = h.Repo.UpsertParticipantFull(ctx, repo.ParticipantUpsert{
-			EventID: eventID, ParticipantKey: key, IdentityType: "external_fingerprint",
-			ParticipantType: "external", FingerprintHash: fp,
-		})
-		if err != nil {
-			return "", "", "db"
+// completeStage marks a stage done, advances current_stage, triggers the
+// participated count on the first completed stage, and completes the
+// participation when all enabled stages are done (D5, SS4-04/10/11/12).
+func (h *Handler) completeStage(ctx context.Context, eventID, partcpnID, stage string, fl *flow.Flow, done map[string]bool) {
+	if stage == "" || done[stage] {
+		return
+	}
+	first := len(done) == 0
+	next := nextEnabledStage(fl, stage)
+	_ = h.Repo.SetStageDone(ctx, partcpnID, stage, next)
+	done[stage] = true
+	if first {
+		h.RT.OnCheckin(ctx, eventID) // participated count (SS-6 renames envelope)
+		h.publish(ctx, "checkin.submitted", map[string]string{
+			"event_id": eventID, "participation_id": partcpnID})
+	}
+	allDone := true
+	for _, s := range fl.EnabledStages() {
+		if !done[s] {
+			allDone = false
+			break
 		}
 	}
-	partcpn, err = h.Repo.EnsureParticipation(ctx, eventID, pid)
-	if err != nil {
-		return "", "", "db"
+	if allDone {
+		_ = h.Repo.MarkCompletedAll(ctx, partcpnID)
 	}
-	return pid, partcpn, ""
 }
 
 // Submit: POST /api/v1/p/e/{event_id}/steps/{step_id}/submit
+// Participant-JWT auth + D5 sequential stage gating (SS4-01/05..11).
 func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("event_id")
 	stepID := r.PathValue("step_id")
-	sess, ok := h.session(w, r, eventID)
+	claims, ok := h.participantAuth(w, r, eventID)
 	if !ok {
 		return
 	}
-	if !h.RL.Allow(r.Context(), "submit:dev:"+sess.DeviceHash+":"+eventID, 6, time.Minute) ||
-		!h.RL.Allow(r.Context(), "submit:ip:"+httpx.ClientIP(r), 60, time.Minute) {
+	pid := claims.Subject
+	if !h.RL.Allow(r.Context(), "submit:p:"+pid+":"+eventID, 30, time.Minute) ||
+		!h.RL.Allow(r.Context(), "submit:ip:"+httpx.ClientIP(r), 120, time.Minute) {
 		httpx.Fail(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
 		return
 	}
-
 	ev, err := h.Repo.Event(r.Context(), eventID)
 	if err != nil {
 		httpx.Fail(w, http.StatusNotFound, "event_not_found", "event not found")
@@ -237,77 +196,72 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusNotFound, "step_not_found", "step not found")
 		return
 	}
-
-	var body submitReq
-	_ = httpx.DecodeJSON(r, &body) // body optional for some steps
-
-	var partID, partcpnID string
-	if (body.ParticipantType == "staff" || body.ParticipantType == "external") && body.Fingerprint != nil {
-		// REQ-CHANGE-001 identity (fingerprint + whitelist)
-		var code string
-		partID, partcpnID, code = h.resolveIdentity(r.Context(), eventID, body)
-		switch code {
-		case "":
-		case "db":
-			httpx.Fail(w, http.StatusInternalServerError, "db", "identity resolve failed")
-			return
-		case identity.ErrBadFingerprint:
-			httpx.Fail(w, http.StatusBadRequest, code, "指纹信息不完整")
-			return
-		default: // STAFF_NOT_IN_WHITELIST / PHONE_MISMATCH / ENTRY_BLOCKED / ENTRY_CLAIMED_ELSEWHERE
-			httpx.Fail(w, http.StatusForbidden, code, "白名单校验未通过")
-			return
-		}
-	} else {
-		// legacy device-session identity (keeps existing demo / load path)
-		pkey := sess.DeviceHash
-		idType, idVal := "anon", ""
-		if step.Type == flow.StepForm {
-			if v, ok := body.Fields["phone"].(string); ok && v != "" {
-				idType, idVal = "phone", v
-			}
-		}
-		var err error
-		partID, _, err = h.Repo.UpsertParticipant(r.Context(), eventID, pkey, idType, idVal)
-		if err != nil {
-			httpx.Fail(w, http.StatusInternalServerError, "db", "participant upsert failed")
-			return
-		}
-		partcpnID, err = h.Repo.EnsureParticipation(r.Context(), eventID, partID)
-		if err != nil {
-			httpx.Fail(w, http.StatusInternalServerError, "db", "participation failed")
-			return
-		}
+	partcpnID, err := h.Repo.EnsureParticipation(r.Context(), eventID, pid)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "participation failed")
+		return
+	}
+	_, done, _, _ := h.Repo.StageState(r.Context(), eventID, pid)
+	if done == nil {
+		done = map[string]bool{}
+	}
+	// D5 sequential gating (SS4-05)
+	if !fl.CanEnter(step.Stage, done) {
+		httpx.Fail(w, http.StatusConflict, "stage_gated", "请先完成前序环节")
+		return
 	}
 
+	var body submitReq
+	_ = httpx.DecodeJSON(r, &body)
 	resp := map[string]any{"stepId": stepID, "nextStepId": step.NextStepID}
 
 	switch step.Type {
-	case flow.StepCheckin:
-		// 用户签到加入 Cloudflare 人机认证（REQ-CHANGE-004；mode=off 时放行）
+	case flow.StepCheckin: // R1 multi-day
 		if h.TS != nil && !h.TS.Verify(r.Context(), body.Turnstile, httpx.ClientIP(r)) {
 			httpx.Fail(w, http.StatusForbidden, "captcha_failed", "人机验证未通过")
 			return
 		}
-		first, err := h.Repo.MarkCheckin(r.Context(), partcpnID)
-		if err != nil {
+		idc, _ := h.Repo.EventIdentity(r.Context(), eventID)
+		loc, lerr := time.LoadLocation(idc.Timezone)
+		if lerr != nil {
+			loc = time.UTC
+		}
+		day := time.Now().In(loc).Format("2006-01-02")
+		var lat, lng, acc *float64
+		if body.Geo != nil {
+			lat, lng, acc = &body.Geo.Lat, &body.Geo.Lng, &body.Geo.Accuracy
+		}
+		if _, err := h.Repo.MarkCheckinDay(r.Context(), partcpnID, eventID, day, lat, lng, acc); err != nil {
 			httpx.Fail(w, http.StatusInternalServerError, "db", "checkin failed")
 			return
 		}
-		if first {
-			h.RT.OnCheckin(r.Context(), eventID)
-			if body.Geo != nil {
-				_ = h.Repo.SetCheckinGeo(r.Context(), partcpnID,
-					body.Geo.Lat, body.Geo.Lng, body.Geo.Accuracy)
-			}
-			h.publish(r.Context(), "checkin.submitted", map[string]string{
-				"event_id": eventID, "participation_id": partcpnID})
+		_, _ = h.Repo.MarkCheckin(r.Context(), partcpnID) // keep legacy checkin_at first-time
+		days := 1
+		if d, ok := step.Config["days"].(float64); ok && d >= 1 {
+			days = int(d)
 		}
-		resp["checked_in"] = true
+		got, _ := h.Repo.DistinctCheckinDays(r.Context(), partcpnID)
+		_ = h.Repo.RecordStep(r.Context(), partcpnID, stepID, step.Type,
+			map[string]any{"day": day, "days_done": got, "days_required": days})
+		resp["days_done"], resp["days_required"] = got, days
+		if got >= days {
+			h.completeStage(r.Context(), eventID, partcpnID, step.Stage, fl, done)
+			resp["stage_complete"] = true
+		}
 
-	case flow.StepForm:
+	case flow.StepForm: // R2 survey
 		_ = h.Repo.RecordStep(r.Context(), partcpnID, stepID, step.Type, body.Fields)
+		f1, f2 := summarizeForm(body.Fields)
+		_ = h.Repo.SetDataFields(r.Context(), partcpnID, f1, f2, "")
 		resp["saved"] = true
+		h.completeStage(r.Context(), eventID, partcpnID, step.Stage, fl, done)
+
+	case flow.StepExam: // R3 scored
+		score, total, passed := h.scoreExam(r.Context(), eventID, stepID, step, body.Answers)
+		_ = h.Repo.RecordStep(r.Context(), partcpnID, stepID, step.Type,
+			map[string]any{"answers": body.Answers, "score": score, "total": total, "passed": passed})
+		resp["score"], resp["total"], resp["passed"] = score, total, passed
+		h.completeStage(r.Context(), eventID, partcpnID, step.Stage, fl, done)
 
 	case flow.StepGame:
 		correct := false
@@ -328,6 +282,10 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"viewed": true})
 		resp["reward"] = step.Config
 
+	case flow.StepLottery:
+		// draw is a dedicated endpoint (SS-5); submit here is a no-op marker.
+		resp["use"] = "POST .../draw"
+
 	case flow.StepResult:
 		_ = h.Repo.RecordStep(r.Context(), partcpnID, stepID, step.Type, map[string]any{})
 	}
@@ -340,7 +298,6 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	h.publish(r.Context(), "participant.step_completed", map[string]string{
 		"event_id": eventID, "participation_id": partcpnID,
 		"step_id": stepID, "step_type": step.Type})
-
 	httpx.JSON(w, http.StatusOK, resp)
 }
 

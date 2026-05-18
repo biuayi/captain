@@ -1296,5 +1296,128 @@ func (r *Repo) LotterySummary(ctx context.Context, eventID, stepID string) (map[
 	return map[string]any{"pools": pools, "rigged": rig}, rows.Err()
 }
 
+// ---- SS-4: runtime — checkin days, stage progression, funnel ----
+
+// MarkCheckinDay records one calendar-day checkin (idempotent per day).
+// Returns true only the first time that day is seen.
+func (r *Repo) MarkCheckinDay(ctx context.Context, participationID, eventID, day string, lat, lng, acc *float64) (bool, error) {
+	ct, err := r.pg.Exec(ctx,
+		`INSERT INTO checkin_day (participation_id, event_id, day_date, lat, lng, accuracy)
+		 VALUES ($1,$2,$3::date,$4,$5,$6)
+		 ON CONFLICT (participation_id, day_date) DO NOTHING`,
+		participationID, eventID, day, lat, lng, acc)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() == 1, nil
+}
+
+func (r *Repo) DistinctCheckinDays(ctx context.Context, participationID string) (int, error) {
+	var n int
+	err := r.pg.QueryRow(ctx,
+		`SELECT count(*) FROM checkin_day WHERE participation_id=$1`, participationID).Scan(&n)
+	return n, err
+}
+
+// SetStageDone marks a stage complete (stage_done[stage]=now) and advances
+// current_stage to nextStage (caller computes next from the flow).
+func (r *Repo) SetStageDone(ctx context.Context, participationID, stage, nextStage string) error {
+	_, err := r.pg.Exec(ctx,
+		`UPDATE participation
+		    SET stage_done = stage_done || jsonb_build_object($2::text, now()),
+		        current_stage = NULLIF($3,'')
+		  WHERE id=$1`, participationID, stage, nextStage)
+	return err
+}
+
+func (r *Repo) SetCurrentStage(ctx context.Context, participationID, stage string) error {
+	_, err := r.pg.Exec(ctx,
+		`UPDATE participation SET current_stage=$2 WHERE id=$1 AND current_stage IS DISTINCT FROM $2`,
+		participationID, stage)
+	return err
+}
+
+func (r *Repo) MarkCompletedAll(ctx context.Context, participationID string) error {
+	_, err := r.pg.Exec(ctx,
+		`UPDATE participation SET completed_all=true, completed_at=now(), status='completed'
+		  WHERE id=$1 AND completed_all=false`, participationID)
+	return err
+}
+
+// StageState returns the participation id, stage_done set and current_stage
+// for a participant (gating + /me, SS4-05/14).
+func (r *Repo) StageState(ctx context.Context, eventID, participantID string) (partID string, done map[string]bool, current string, err error) {
+	var raw []byte
+	var cur *string
+	err = r.pg.QueryRow(ctx,
+		`SELECT id, stage_done, current_stage FROM participation
+		  WHERE event_id=$1 AND participant_id=$2`, eventID, participantID,
+	).Scan(&partID, &raw, &cur)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", map[string]bool{}, "", ErrNotFound
+	}
+	if err != nil {
+		return "", nil, "", err
+	}
+	m := map[string]any{}
+	_ = json.Unmarshal(raw, &m)
+	done = map[string]bool{}
+	for k := range m {
+		done[k] = true
+	}
+	if cur != nil {
+		current = *cur
+	}
+	return partID, done, current, nil
+}
+
+// SetDataFields stores the record columns (partial; "" leaves a column).
+func (r *Repo) SetDataFields(ctx context.Context, participationID, f1, f2, deviceID string) error {
+	_, err := r.pg.Exec(ctx,
+		`UPDATE participation
+		    SET data_field_1 = COALESCE(NULLIF($2,''), data_field_1),
+		        data_field_2 = COALESCE(NULLIF($3,''), data_field_2),
+		        device_id    = COALESCE(NULLIF($4,''), device_id)
+		  WHERE id=$1`, participationID, f1, f2, deviceID)
+	return err
+}
+
+// ParticipatedCount = distinct participations that completed ≥1 stage
+// (D5 "参与人数"; the big-screen number, SS4-11/13).
+func (r *Repo) ParticipatedCount(ctx context.Context, eventID string) (int64, error) {
+	var n int64
+	err := r.pg.QueryRow(ctx,
+		`SELECT count(*) FROM participation
+		  WHERE event_id=$1 AND stage_done <> '{}'::jsonb`, eventID).Scan(&n)
+	return n, err
+}
+
+// EventFunnel returns per-current_stage counts + participated/completed
+// totals (D5 organizer funnel, SS7-05).
+func (r *Repo) EventFunnel(ctx context.Context, eventID string) (map[string]any, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT COALESCE(current_stage,'(none)'), count(*) FROM participation
+		  WHERE event_id=$1 GROUP BY current_stage`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stages := map[string]int64{}
+	for rows.Next() {
+		var s string
+		var c int64
+		if err := rows.Scan(&s, &c); err != nil {
+			return nil, err
+		}
+		stages[s] = c
+	}
+	var participated, completed int64
+	_ = r.pg.QueryRow(ctx, `SELECT count(*) FROM participation WHERE event_id=$1 AND stage_done<>'{}'::jsonb`, eventID).Scan(&participated)
+	_ = r.pg.QueryRow(ctx, `SELECT count(*) FROM participation WHERE event_id=$1 AND completed_all`, eventID).Scan(&completed)
+	return map[string]any{
+		"by_stage": stages, "participated": participated, "completed": completed,
+	}, rows.Err()
+}
+
 // Pool exposes the pool for seed bootstrapping only.
 func (r *Repo) Pool() *pgxpool.Pool { return r.pg }

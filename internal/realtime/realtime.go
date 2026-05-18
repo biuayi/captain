@@ -73,7 +73,7 @@ func (m *Manager) publish(ctx context.Context, s Snapshot) {
 func (m *Manager) Snapshot(ctx context.Context, eventID string) Snapshot {
 	n, err := m.rdb.Get(ctx, countKey(eventID)).Int64()
 	if err != nil {
-		if pg, e := m.repo.CheckinCount(ctx, eventID); e == nil {
+		if pg, e := m.repo.ParticipatedCount(ctx, eventID); e == nil {
 			n = pg
 			m.rdb.Set(ctx, countKey(eventID), n, 0)
 		}
@@ -165,7 +165,7 @@ func (m *Manager) reconcile(ctx context.Context) {
 		return
 	}
 	for _, id := range ids {
-		pgN, err := m.repo.CheckinCount(ctx, id)
+		pgN, err := m.repo.ParticipatedCount(ctx, id)
 		if err != nil {
 			continue
 		}

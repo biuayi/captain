@@ -121,7 +121,7 @@ func run() error {
 
 	pa := &participation.Handler{Repo: r, Sig: sig, RT: rt,
 		RL: httpx.NewRateLimiter(st.Redis), JS: st.JS, Pepper: cfg.IdentityPepper, TS: ts,
-		Guard: guard, RDB: st.Redis, OpenLegacy: cfg.OpenParticipation}
+		Guard: guard, RDB: st.Redis, Store: strg, OpenLegacy: cfg.OpenParticipation}
 	og := &organizer.Handler{Repo: r, Sig: sig, RT: rt, Export: exp,
 		Store: strg, BaseURL: cfg.PublicBaseURL, Guard: guard, TS: ts, TplC: tplc, RDB: st.Redis}
 	ad := &admin.Handler{Repo: r, Sig: sig, Guard: guard, TS: ts,
@@ -138,6 +138,8 @@ func run() error {
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/logout", pa.Logout)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/me", pa.Me)
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/steps/{step_id}/submit", pa.Submit)
+	mux.HandleFunc("GET /api/v1/p/e/{event_id}/steps/{step_id}", pa.StepGet)
+	mux.HandleFunc("POST /api/v1/p/e/{event_id}/uploads", pa.Upload)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/count", pa.Count)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/info", pa.Info)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}/qr", pa.QR)
