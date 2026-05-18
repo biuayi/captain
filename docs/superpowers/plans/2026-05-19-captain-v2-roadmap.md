@@ -157,17 +157,17 @@
 
 ## Phase SS-7 — 活动记录查看与导出
 
-- [ ] **SS7-01** repo `ListParticipants` refactor：JOIN whitelist 取 name/company/employee/phone_last4/phone；含 device_id/fingerprint/data_field_1/2/current_stage — Modify `internal/repo/repo.go` | 验收: 字段齐 | 测试: 数据断言
-- [ ] **SS7-02** organizer `GET /org/events/{id}/participants` refactor：字段对齐 + can_view_records + PII 审计 + 手机脱敏 — Modify `internal/organizer/handler.go` | 验收: 无权限 403、脱敏 | 测试: 权限+脱敏
-- [ ] **SS7-03** export 列对齐（含 company/phone_last4/全号/device/fingerprint/data_field/动态 form 键并集）+ 防注入(保留 csvSafe)+BOM — Modify `internal/export/export.go` | 验收: 列齐、注入安全 | 测试: 列+注入用例
-- [ ] **SS7-04** export 受 can_export_records + 审计 — Modify `internal/organizer/handler.go` | 验收: 无权限 403 | 测试: 权限
-- [ ] **SS7-05** repo 漏斗聚合 `EventStats`（参与人数/完成人数/各 current_stage GROUP BY + 累计到达/完成 Ri） — Modify `internal/repo/repo.go` | 验收: 2万级 GROUP BY 走索引 | 测试: 构造分布断言
-- [ ] **SS7-06** organizer `GET /org/events/{id}/stats` — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 数字与明细一致 | 测试: 一致性
-- [ ] **SS7-07** repo/organizer `GET /org/events/{id}/warnings` 列表（D3） + can_view_records — Modify `internal/repo/repo.go`, `internal/organizer/handler.go` | 验收: 含工号/姓名/类型/时间 | 测试: 数据断言
-- [ ] **SS7-08** 告警导出 `POST /org/events/{id}/warnings/export`（异步 CSV→storage→签名） — Modify `internal/export/export.go`, `internal/organizer/handler.go` | 验收: 可下载 | 测试: 状态机
-- [ ] **SS7-09** participation `GET /p/e/{id}/me/records`（本人各 step 记录+exam 成绩+抽奖结果） — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 仅本人 | 测试: 越权拒绝
-- [ ] **SS7-10** export download 走 storage.SignedURL（OSS 私有读，短 TTL）；local 代理 — Modify `internal/organizer/handler.go`, `internal/storage` | 验收: 链接短时有效 | 测试: 过期失效
-- [ ] **SS7-11** SS-7 阶段验收：build/vet/test + smoke（看记录/漏斗/告警/导出/本人记录）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
+- [x] **SS7-01** repo `ListParticipants` refactor：JOIN whitelist 取 name/company/employee/phone_last4/phone；含 device_id/fingerprint/data_field_1/2/current_stage — Modify `internal/repo/repo.go` | 验收: 字段齐 | 测试: 数据断言
+- [x] **SS7-02** organizer `GET /org/events/{id}/participants` refactor：字段对齐 + can_view_records + PII 审计 + 手机脱敏 — Modify `internal/organizer/handler.go` | 验收: 无权限 403、脱敏 | 测试: 权限+脱敏
+- [x] **SS7-03** export 列对齐（含 company/phone_last4/全号/device/fingerprint/data_field/动态 form 键并集）+ 防注入(保留 csvSafe)+BOM — Modify `internal/export/export.go` | 验收: 列齐、注入安全 | 测试: 列+注入用例
+- [x] **SS7-04** export 受 can_export_records + 审计 — Modify `internal/organizer/handler.go` | 验收: 无权限 403 | 测试: 权限
+- [x] **SS7-05** repo 漏斗聚合 `EventStats`（参与人数/完成人数/各 current_stage GROUP BY + 累计到达/完成 Ri） — Modify `internal/repo/repo.go` | 验收: 2万级 GROUP BY 走索引 | 测试: 构造分布断言
+- [x] **SS7-06** organizer `GET /org/events/{id}/stats` — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 数字与明细一致 | 测试: 一致性
+- [x] **SS7-07** repo/organizer `GET /org/events/{id}/warnings` 列表（D3） + can_view_records — Modify `internal/repo/repo.go`, `internal/organizer/handler.go` | 验收: 含工号/姓名/类型/时间 | 测试: 数据断言
+- [x] **SS7-08** 告警导出 `POST /org/events/{id}/warnings/export`（异步 CSV→storage→签名） — Modify `internal/export/export.go`, `internal/organizer/handler.go` | 验收: 可下载 | 测试: 状态机
+- [x] **SS7-09** participation `GET /p/e/{id}/me/records`（本人各 step 记录+exam 成绩+抽奖结果） — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 仅本人 | 测试: 越权拒绝
+- [x] **SS7-10** export download 走 storage.SignedURL（OSS 私有读，短 TTL）；local 代理 — Modify `internal/organizer/handler.go`, `internal/storage` | 验收: 链接短时有效 | 测试: 过期失效
+- [x] **SS7-11** SS-7 阶段验收：build/vet/test + smoke（看记录/漏斗/告警/导出/本人记录）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
 
 ## Phase PF — 集成 / E2E / 收尾
 
