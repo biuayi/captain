@@ -47,7 +47,7 @@
 | `realtime` | Redis 计数+pubsub+SSE+对账 | **refactor** | SSE 负载升级为 typed 信封（count / winner / milestone） |
 | `flow` | 线性 6 step 校验 | **refactor** | step 扩 R1 多日签到/exam/lottery 配置；新增"完成门禁"校验 |
 | `participation` | 落地+device-session+submit | **refactor** | 新增登录端点；submit 改 participant-JWT 鉴权；门禁；上传端点 |
-| `organizer` | 活动/流程 CRUD+白名单+导出 | **refactor+extend** | 权限位中间件；模板选择；exam/lottery 配置；A/B 名册导入；记录字段对齐 |
+| `organizer` | 活动/流程 CRUD+白名单+导出 | **refactor+extend** | 权限位中间件；模板选择；exam/lottery 配置；多奖池/成员指派/内定名册导入；记录字段对齐 |
 | `admin` | 活动方 增/列/启停 | **extend** | 删除、权限位、平台配置、模板管理、DB 导出 |
 | `repo` | 全部 SQL | **extend** | 新查询；保持"每租户查询显式带 organizer_id"铁律 |
 | `storage` | local FS / 阿里云 OSS 接口 | **reuse+extend** | 新增 `SignedURL(key, ttl)`（OSS 私有读签名；local 走代理下载） |
@@ -57,7 +57,7 @@
 | `httpx` | 路由/中间件/SSE/限流 | **reuse+extend** | 新增权限中间件、Request-Id、统一鉴权辅助 |
 | `webui` | 内嵌 React/大屏 | **reuse** | 不在本期后端设计范围（前端独立仓库） |
 
-无"近 greenfield"丢弃；所有现有验证过的并发安全写法（`MarkCheckin` 条件 UPDATE、`ClaimWhitelist` 条件 UPDATE、Redis fail-open）作为**复用范式**沿用到新并发点（抽奖扣库存、A/B 命中）。
+无"近 greenfield"丢弃；所有现有验证过的并发安全写法（`MarkCheckin` 条件 UPDATE、`ClaimWhitelist` 条件 UPDATE、Redis fail-open）作为**复用范式**沿用到新并发点（抽奖池内库存原子扣减、池内内定占用）。
 
 ---
 
@@ -83,11 +83,11 @@
 
 ### 3.6 可观测与审计
 - 新增 `X-Request-Id`（入站透传或生成；进 access log 与错误信封）。
-- 审计表 `audit_log`（见 §4）：超管账号操作、平台配置变更、A/B 名册导入、抽奖内定命中、导出/DB 导出、记录查看（PII 访问留痕）。append-only。
+- 审计表 `audit_log`（见 §4）：超管账号操作、平台配置变更、奖池/成员指派/内定名册导入、抽奖结算（每抽逐条）、导出/DB 导出、记录与告警查看（PII 访问留痕）。append-only。
 
 ### 3.7 测试策略（自测，开发后执行）
 - 单元：flow 校验/门禁、exam 判分、抽奖算法（含内定/库存竞争）、identity 归一、token、加密配置。
-- 仓储：用 `pgxpool` 连测试库（docker compose）跑迁移后做并发竞争测试（抽奖扣库存、A/B 命中、whitelist claim、多日签到去重）。
+- 仓储：用 `pgxpool` 连测试库（docker compose）跑迁移后做并发竞争测试（抽奖池内库存扣减、池内内定占用、whitelist claim、多日签到去重、奖池成员互斥 UNIQUE）。
 - 集成/E2E：扩展 `scripts/smoke.sh` 覆盖 `登录→R1多日签到门禁→R2问卷含图片→R3考试计分→R4抽奖(普通/内定)→中奖推大屏→活动方看记录→导出CSV→用户查本人记录`。
 - 门控集成（需真 token，标注节点）：Turnstile enforce、阿里云 OSS、DB dump。
 - 验收基线：`go build ./... && go vet ./... && go test ./...` 全绿；smoke 全绿；2万级计数压测不退化（保留 `cmd/screenstress`/`cmd/loadtest`，新增抽奖并发压测 `cmd/lotterystress`）。
@@ -114,9 +114,11 @@
 | 0008 | `participation_warning`(新) | `id uuid pk, participation_id uuid fk, event_id uuid fk, kind text, detail jsonb, created_at timestamptz; INDEX(event_id, created_at desc)`（D3 告警留痕：指纹不一致/顶号等，活动方可导出告警列表） |
 | 0009 | `exam_question`(新) | `id uuid pk, event_id uuid fk, step_id text, idx int, stem text, options jsonb, correct jsonb, score int, multi bool; INDEX(event_id, step_id, idx)` |
 | 0009 | `participation_step_record` | 复用承载 exam 结果 payload（`{answers,score,passed,picked[]}`）；不新表 |
-| 0010 | `lottery_prize`(新) | `id uuid pk, event_id uuid fk, step_id text, code text, name text, level text CHECK in(grand,normal,none), stock int NOT NULL, drawn int NOT NULL DEFAULT 0, weight int, image_key text; UNIQUE(event_id,step_id,code); CHECK(drawn<=stock)` |
-| 0010 | `lottery_rig_entry`(新) | `id uuid pk, event_id uuid fk, step_id text, employee_number text, prize_code text, pool text CHECK in(A,B), created_by uuid, created_at; UNIQUE(event_id,step_id,employee_number)` |
-| 0010 | `lottery_result`(新) | `id uuid pk, event_id uuid fk, step_id text, participant_id uuid fk, prize_id uuid NULL fk, prize_level text, resolved_by text CHECK in(rig,random,miss), drawn_at timestamptz; UNIQUE(event_id,step_id,participant_id)`（抽奖幂等 + 防重抽） |
+| 0010 | `lottery_pool`(新) | `id uuid pk, event_id uuid fk, step_id text, code text, name text, is_default bool NOT NULL DEFAULT false, created_at; UNIQUE(event_id,step_id,code)`（活动方可设 N 个奖池；`is_default` 接收未指派成员，每 step 至多一个） |
+| 0010 | `lottery_membership`(新) | `id uuid pk, event_id uuid fk, step_id text, employee_number text, pool_id uuid fk→lottery_pool, created_by uuid, created_at; UNIQUE(event_id,step_id,employee_number)`（**互斥保证**：每人每抽奖 step 仅属一个池；活动方 CSV 导入） |
+| 0010 | `lottery_prize`(新) | `id uuid pk, event_id uuid fk, step_id text, pool_id uuid fk→lottery_pool, code text, name text, level text CHECK in(grand,normal,none), stock int NOT NULL, drawn int NOT NULL DEFAULT 0, weight int, image_key text; UNIQUE(event_id,step_id,code); CHECK(drawn<=stock)`（**奖项归属某池**，用户仅能抽到本池奖项） |
+| 0010 | `lottery_rig_entry`(新) | `id uuid pk, event_id uuid fk, step_id text, employee_number text, prize_code text, created_by uuid, created_at; UNIQUE(event_id,step_id,employee_number)`（池内内定；池由 `lottery_membership` 推定，导入校验 prize ∈ 该成员所属池） |
+| 0010 | `lottery_result`(新) | `id uuid pk, event_id uuid fk, step_id text, participant_id uuid fk, pool_id uuid NULL fk, prize_id uuid NULL fk, prize_level text, resolved_by text CHECK in(rig,random,miss), drawn_at timestamptz; UNIQUE(event_id,step_id,participant_id)`（一人一抽幂等 + 防重抽 + 审计源） |
 | 0011 | `participation` | + `data_field_1 text`（通用文本，记录栏一）、`data_field_2 text`（OSS 资源 key，记录栏二）、`device_id text`（设备标识，导出可见）、`current_stage text`（R1/R2/R3/R4/done，漏斗用，索引）、`stage_done jsonb NOT NULL DEFAULT '{}'`（各环节完成时间 `{R1:ts,...}`）、`completed_all bool NOT NULL DEFAULT false`、`completed_at timestamptz`；`fingerprint_hash` 已在 `participant`（0003）；`INDEX(event_id, current_stage)` 支撑漏斗聚合 |
 
 > 设计原则：能复用 `participation_step_record` 的（form/game/charity/reward/exam 结果）不新建表；需要**强约束/高频并发/独立生命周期**的（多日签到去重、奖品库存、内定名册、抽奖幂等、模板、平台配置、审计）才建表。与 0002 注释里"participant/participation 不合并"的既有判断一致。
@@ -224,7 +226,7 @@
 | **R1** 每日签到 | 0/1/N 天签到 | `checkin` | `days>0` 视为启用；`days=0` 跳过 |
 | **R2** 调查问卷 | 文本+图片 | `form` | 配置了 R2 step |
 | **R3** 在线考试 | 计分题库 | `exam` | 配置了 R3 step |
-| **R4** 在线抽奖 | A/B 奖池 | `lottery` | 配置了 R4 step |
+| **R4** 在线抽奖 | N 互斥奖池 | `lottery` | 配置了 R4 step |
 
 辅助 step（`charity`/`reward`/`result`/`game`）为**非环节**信息页，不进 R1-R4 门禁与漏斗（保留以兼容既有 flow）。flow_config schema v2：
 
@@ -234,12 +236,12 @@ checkin.config = { mode:"single"|"multiday", days:int(>=0),
                    requireAllToProceed:bool, countTowardAttendance:true }  // 日界按 event.timezone(活动方设定,默认 Asia/Shanghai)；days=0 跳过 R1
 form.config    = { fields:[{id,type:text|phone|email|select|image|textarea, label, required, options?, maxSizeKB?}] }  // R2 问卷，image→上传
 exam.config    = { bankRef:true, mode:"all"|"random", randomCount:int, passScore:int, attemptLimit:int, shuffle:bool }  // R3，题目在 exam_question
-lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, prizesRef:true }  // R4，奖项在 lottery_prize
+lottery.config = { poolsRef:true, prizesRef:true, drawLimit:1, grandPushToScreen:bool }  // R4：N 奖池/成员指派/内定/奖项见 SS-5（lottery_pool/membership/prize/rig）
 ```
 
 **D5 顺序门禁（强制）**：在 flow 实际配置的环节中按 R1→R2→R3→R4 顺序硬门禁——某环节启用则必须**完成它**才能进入**下一个已启用环节**（未启用环节自动跳过，门禁链只串已启用项）。引擎据 `step.stage` 与参与者各环节完成态判定准入；越级提交回 `409 stage_gated`。活动方设定 `event.timezone`（默认 `Asia/Shanghai`）决定 R1 多日签到的"日"边界。
 3. R3 题库：活动方导入题目（CSV/JSON：题干、选项、正确项、分值、单/多选）→ `exam_question`。
-4. R4 奖项配置 + **A/B 内定名册**导入（CSV `employee_number,prize_code,pool`）→ `lottery_prize` / `lottery_rig_entry`；导入即审计。
+4. R4 多奖池配置：奖池/奖项/成员→奖池指派(互斥)/池内内定名单导入，详见 **SS-5**；所有导入即审计。
 5. 名单导入（**保留** whitelist import）。
 
 **接口**（`/api/v1/org`，活动方 JWT + 租户 + 权限中间件）
@@ -251,9 +253,7 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 | `GET /org/templates` | 可选模板（SS-1） |
 | `POST /org/events/{id}/exam/import` | 导入题库（覆盖 step） |
 | `GET /org/events/{id}/exam` | 查看题库 |
-| `POST /org/events/{id}/lottery/prizes` | 配置奖项 |
-| `POST /org/events/{id}/lottery/rig/import` | 导入 A/B 内定名册（审计） |
-| `GET /org/events/{id}/lottery/summary` | 奖项余量/已抽/内定数 |
+| R4 抽奖：奖池/奖项/成员指派/内定/汇总/审计导出 | 见 **SS-5** 接口表 |
 
 **数据库**：0007(event.flow_template_code) / 0009(exam_question) / 0010(lottery_*)。flow schema v2 经 `flow.Parse` 强校验（新增 step 类型与 config 形状校验、门禁引用合法、days>=0、随机题数<=题库量）。
 
@@ -299,32 +299,41 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 
 ---
 
-## SS-5 在线抽奖 R4 + A/B 奖池 + 中奖推大屏
+## SS-5 在线抽奖 R4（多奖池 · 池内内定 · 全程可审计）
 
-**功能**
-1. 用户在 `lottery` step 抽奖：**每参与者每 step 仅一次**（`lottery_result` `UNIQUE(event,step,participant)` 幂等，重复请求回同一结果）。前置门禁可配（如需先完成 R1~R3）。
-2. 结算算法（事务内，PG 为准，复用条件 UPDATE 并发范式）：
-   - **内定优先**：参与者 `employee_number` 命中 `lottery_rig_entry(event,step)` → 指定 `prize_code`、`pool`，`resolved_by='rig'`。
-   - **否则随机**：在未被内定占用的剩余库存上按 `weight` 加权随机；`UPDATE lottery_prize SET drawn=drawn+1 WHERE id=? AND drawn<stock RETURNING`（原子扣减，失败则回退到"未中奖 miss/兜底奖"）。
-   - 写 `lottery_result`，审计 `audit_log(action='lottery_draw', meta={resolved_by,prize,pool})`。
-3. **中大奖推大屏**：`prize.level='grand'` 且 `grandPushToScreen` → 发 `prize.won`（NATS）→ realtime 注入 `win:{event}` 滚动列表 + SSE 广播 `{type:"winner",name,prize}`（姓名可按活动方配置脱敏，企业内部场景默认显示——满足"给领导人情世故"的展示诉求，但**内定与展示均审计留痕**）。
-4. 活动方可查抽奖汇总、内定命中明细（仅活动方/超管，审计访问）。
+**功能（D7 用户已定）**
+1. 活动方为 `lottery` step 配置 **N 个奖池** `lottery_pool`，每池有自己的奖项 `lottery_prize(pool_id)`。可标记一个池 `is_default=true` 接收未指派成员。
+2. 活动方导入**成员→奖池**指派 `lottery_membership`（CSV `employee_number,pool_code`）；`UNIQUE(event,step,employee_number)` 从存储层**强制奖池互斥**（一人仅属一个池）。未指派者落 `is_default` 池；无默认池且未指派 → `miss` + 告警审计。
+3. 活动方可在某池内导入**内定名单** `lottery_rig_entry`（CSV `employee_number,prize_code`）；导入即校验 `prize ∈ 该成员所属池`，否则拒绝该行并审计。
+4. 用户抽奖：**每用户全程仅一次**（`lottery_result UNIQUE(event,step,participant)` 幂等，重复请求回同一结果）；前置顺序门禁按 D5（R4 前的已启用环节须完成）。
+5. 结算算法（单事务，PG 为准，复用 `MarkCheckin`/`ClaimWhitelist` 条件 UPDATE 并发范式）：
+   1. 定位用户奖池：`lottery_membership` → pool；缺失则 default 池；仍无 → `resolved_by='miss'`。
+   2. **池内内定优先**：命中 `lottery_rig_entry` → 该 `prize_code`（必属本池），`resolved_by='rig'`。
+   3. **否则池内加权随机**：仅在**本池**未被内定预留的剩余库存上按 `weight` 加权随机；`UPDATE lottery_prize SET drawn=drawn+1 WHERE id=? AND pool_id=? AND drawn<stock RETURNING`（原子扣减，失败→该池兜底 `level='none'` 或 `miss`）。
+   4. 写 `lottery_result(pool_id,prize_id,resolved_by)`；**全程审计** `audit_log(action='lottery_draw', meta={pool,resolved_by,prize})`（append-only）。
+6. **中大奖推大屏**：`prize.level='grand'` 且 `grandPushToScreen` → `prize.won`（NATS）→ realtime 注入 `win:{event}` + SSE `{type:"winner",name,prize}`（企业内部默认显示姓名，可配脱敏；内定与展示均审计留痕）。
+7. 活动方/超管查抽奖汇总、池分布、内定命中；**抽奖过程可审计导出**（见接口，CSV 全量逐人逐步：用户/池/resolved_by/奖项/时间）。
 
 **接口**
 
 | 方法 路径 | 域 | 说明 |
 |---|---|---|
-| `POST /p/e/{id}/steps/{step_id}/draw` | p | 抽奖（参与者 JWT，幂等） |
+| `POST /p/e/{id}/steps/{step_id}/draw` | p | 抽奖（参与者 JWT，幂等，一人一次） |
 | `GET /p/e/{id}/steps/{step_id}/result` | p | 本人抽奖结果 |
-| `GET /org/events/{id}/lottery/summary` | org | 余量/分布/内定命中（审计） |
+| `POST /org/events/{id}/lottery/pools` | org | 配置奖池（含 is_default） |
+| `POST /org/events/{id}/lottery/prizes` | org | 配置奖项（绑定 pool） |
+| `POST /org/events/{id}/lottery/membership/import` | org | 导入 成员→奖池 指派（CSV，互斥校验，审计） |
+| `POST /org/events/{id}/lottery/rig/import` | org | 导入池内内定名单（校验 prize∈池，审计） |
+| `GET /org/events/{id}/lottery/summary` | org | 各池余量/分布/内定命中（审计访问） |
+| `POST /org/events/{id}/lottery/audit/export` | org | **抽奖过程审计导出**（异步 CSV→存储→签名下载） |
 
-**数据库**：0010（`lottery_prize`/`lottery_rig_entry`/`lottery_result`）。
+**数据库**：0010（`lottery_pool`/`lottery_membership`/`lottery_prize(pool_id)`/`lottery_rig_entry`/`lottery_result(pool_id)`）。
 
-**缓存**：`lot:stock:{event}:{step}:{prize}` 热读余量（展示用，PG 为准）；`lot:lock:{event}:{step}:{participant}` `SETNX` 防并发重复抽（快路径，PG `UNIQUE` 兜底，复用 whitelist/checkin 范式）；`win:{event}` capped LIST（最近 N 中奖，断连即发，**保留 realtime 重连无回放**思路）。fail-open 到 PG。
+**缓存**：`lot:stock:{event}:{step}:{prize}` 热读余量（展示用，PG 为准）；`lot:lock:{event}:{step}:{participant}` `SETNX` 防并发重复抽（快路径，PG `UNIQUE` 兜底，复用 whitelist/checkin 范式）；`win:{event}` capped LIST（最近 N 中奖，断连即发，**保留 realtime 重连无回放**思路）。全部 fail-open 到 PG。
 
-**与现有代码**：新增 `internal/lottery`（算法+结算，纯函数可单测）；`participation` 挂 draw 路由分派 lottery step；`realtime` refactor 支持 winner 信封；`repo` 加抽奖事务查询（原子扣减条件 UPDATE = `MarkCheckin`/`ClaimWhitelist` 同范式）；`organizer` 加 summary。
+**与现有代码**：新增 `internal/lottery`（池定位+内定+池内加权随机，纯函数可单测，含库存竞争并发测试）；`participation` 挂 draw 路由分派 lottery step；`realtime` refactor 支持 winner 信封；`repo` 加抽奖事务查询（原子扣减条件 UPDATE = `MarkCheckin`/`ClaimWhitelist` 同范式）；`export` 复用 NATS→CSV→存储管线产出审计导出（`export_job.kind='lottery_audit'`）；`organizer` 加池/指派/内定/汇总/审计导出。
 
-**决策与假设**：① A/B 语义=活动方导入 `employee_number→prize_code,pool` 名册，内定者必中指定奖（"人情世故"显式落地），其余加权随机——**透明设计 + 全程审计**（合规可追溯，避免暗箱不可查）；② 未中奖给 `level='none'` 谢谢参与而非报错；③ 抽奖原子性以 PG 条件 UPDATE 为准、Redis 仅热读与快路径锁。①敏感，已登记理由与审计保障；若需更强（如双人复核内定名册）与 codex 复议。
+**决策与假设（D7 已定，登记）**：① 奖池任意 N 个、成员互斥（存储层 UNIQUE 强约束）、用户只能抽本池奖项；② 池内内定者必中指定奖、其余池内加权随机；③ 一人全程一次抽奖；④ 全程审计 append-only 且可 CSV 导出；⑤ 未指派且无默认池 → miss + 告警审计；⑥ 抽奖原子性以 PG 条件 UPDATE 为准、Redis 仅热读+快路径锁。⑤为边界默认（可调：改为"必须先全员指派否则活动方配置校验不通过"）。
 
 ---
 
@@ -382,7 +391,7 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 
 ## 5. 迁移序列（embedded migrator，单文件单事务，可重入）
 
-`0006` 平台基座 → `0007` 模板 → `0008` 参与者登录+多日签到+活动时区/严格指纹/告警表 → `0009` 考试题库 → `0010` 抽奖+A/B → `0011` 记录字段+环节漏斗(current_stage/completed_all)。全部 `IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`/`ON CONFLICT`，对空表或既有数据均安全；生产若已有热数据，索引注释延续 0002 的 CONCURRENTLY 提示。
+`0006` 平台基座 → `0007` 模板 → `0008` 参与者登录+多日签到+活动时区/严格指纹/告警表 → `0009` 考试题库 → `0010` 抽奖+多奖池(pool/membership/prize/rig/result) → `0011` 记录字段+环节漏斗(current_stage/completed_all)。全部 `IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`/`ON CONFLICT`，对空表或既有数据均安全；生产若已有热数据，索引注释延续 0002 的 CONCURRENTLY 提示。
 
 ## 6. 决策与假设登记（汇总，均"可调"，标★为敏感/建议 codex 复议触发条件）
 
@@ -394,7 +403,7 @@ lottery.config = { abPoolEnabled:bool, drawLimit:1, grandPushToScreen:bool, priz
 | D4 | **用户已定**：活动时区由活动方设定，默认 Asia/Shanghai；R1 仅配天数 | event.timezone | 要求"指定具体日期签到" |
 | D5 | **用户已定**：顺序门禁(已启用 R1→R2→R3→R4 须逐环节完成)；参与人数(完成≥1启用环节) 与 完成人数(完成全部) 分开；后台看各环节漏斗、每环节必记录 | 双指标+漏斗 | — |
 | D6 | exam 服务端判分、不下发答案、确定性随机题 | 防作弊 | — |
-| D7★ | A/B=内定名册必中+其余加权随机+全程审计 | 透明可追溯 | 要求双人复核/更强管控 |
+| D7 | **用户已定**：N 个互斥奖池，成员指派到池，只能抽本池奖项；池内可内定、其余池内加权随机；一人全程一抽；全程审计可 CSV 导出 | 多池+池内内定+审计导出 | — |
 | D8 | 删除活动方=软删 | 数据留痕 | 要求硬删合规 |
 | D9 | 平台密钥 DB 加密存储，env 仅 bootstrap | AES-GCM | — |
 | D10 | 模板=配置+静态资源，禁可执行包 | 安全红线 | — |
