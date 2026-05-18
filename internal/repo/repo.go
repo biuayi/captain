@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/hertz/captain/internal/audit"
 	"github.com/hertz/captain/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -571,6 +572,105 @@ func (r *Repo) ListWhitelist(ctx context.Context, eventID, organizerID string) (
 			return nil, err
 		}
 		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// ---- P0-09/10: audit_log (append-only) ----
+
+func (r *Repo) AppendAudit(ctx context.Context, e audit.Entry) error {
+	meta := e.Meta
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	b, _ := json.Marshal(meta)
+	_, err := r.pg.Exec(ctx,
+		`INSERT INTO audit_log (actor_role, actor_id, action, target, meta, request_id)
+		 VALUES ($1, NULLIF($2,'')::uuid, $3, NULLIF($4,''), $5::jsonb, NULLIF($6,''))`,
+		e.ActorRole, e.ActorID, e.Action, e.Target, b, e.RequestID)
+	return err
+}
+
+// ListAudit returns audit rows filtered by optional action and time window,
+// newest first, capped at limit.
+func (r *Repo) ListAudit(ctx context.Context, action string, from, to time.Time, limit int) ([]audit.Row, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := r.pg.Query(ctx,
+		`SELECT id, actor_role, COALESCE(actor_id::text,''), action, COALESCE(target,''),
+		        meta, COALESCE(request_id,''), created_at
+		   FROM audit_log
+		  WHERE ($1='' OR action=$1)
+		    AND ($2::timestamptz IS NULL OR created_at >= $2)
+		    AND ($3::timestamptz IS NULL OR created_at <= $3)
+		  ORDER BY created_at DESC
+		  LIMIT $4`,
+		action, nullTime(from), nullTime(to), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []audit.Row
+	for rows.Next() {
+		var a audit.Row
+		var meta []byte
+		if err := rows.Scan(&a.ID, &a.ActorRole, &a.ActorID, &a.Action, &a.Target,
+			&meta, &a.RequestID, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(meta, &a.Meta)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func nullTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+// ---- P0-11/SS0-10: platform_config (encrypted at rest) ----
+
+// UpsertPlatformConfig stores the already-encrypted value + display mask.
+func (r *Repo) UpsertPlatformConfig(ctx context.Context, key string, valueEnc []byte, masked, updatedBy string) error {
+	_, err := r.pg.Exec(ctx,
+		`INSERT INTO platform_config (key, value_enc, masked, updated_by, updated_at)
+		 VALUES ($1,$2,$3,NULLIF($4,'')::uuid, now())
+		 ON CONFLICT (key) DO UPDATE
+		   SET value_enc=EXCLUDED.value_enc, masked=EXCLUDED.masked,
+		       updated_by=EXCLUDED.updated_by, updated_at=now()`,
+		key, valueEnc, masked, updatedBy)
+	return err
+}
+
+// GetPlatformConfig returns the encrypted blob + mask for a key.
+func (r *Repo) GetPlatformConfig(ctx context.Context, key string) (valueEnc []byte, masked string, err error) {
+	err = r.pg.QueryRow(ctx,
+		`SELECT value_enc, masked FROM platform_config WHERE key=$1`, key,
+	).Scan(&valueEnc, &masked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", ErrNotFound
+	}
+	return valueEnc, masked, err
+}
+
+// ListPlatformConfigKeys returns (key, masked) for all stored configs.
+func (r *Repo) ListPlatformConfigKeys(ctx context.Context) (map[string]string, error) {
+	rows, err := r.pg.Query(ctx, `SELECT key, masked FROM platform_config`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, m string
+		if err := rows.Scan(&k, &m); err != nil {
+			return nil, err
+		}
+		out[k] = m
 	}
 	return out, rows.Err()
 }
