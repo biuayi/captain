@@ -75,22 +75,22 @@
 ## Phase SS-2 — 参与者身份与登录
 
 - [x] **SS2-01** 迁移 0008：whitelist + `company`/`claimed_jwt_jti`；放宽 `phone_number`/`name` 可空、保留 `phone_last4` 必填；替换唯一键含 `company_norm`；event + `identity_require_name/require_phone/multi_company`/`timezone`/`strict_fingerprint` — Create `internal/store/migrations/0008_identity_factors.sql` | 验收: 约束变更幂等(DROP IF EXISTS+重建)、单企业空串键兼容 | 测试: 迁移后约束/唯一键断言
-- [ ] **SS2-02** identity 增 `company_norm(s)`（lower(trim) 空串归一） — Modify `internal/identity/identity.go` | 验收: 归一正确 | 测试: 多用例
-- [ ] **SS2-03** repo whitelist 导入改可变表头解析 `employee_number,phone_last4[,name][,phone][,company]`；给全号则派生/校验后4位 — Modify `internal/repo/repo.go`, `internal/organizer/handler.go`(ImportWhitelist) | 验收: 缺必填行跳过并计数；冲突 ON CONFLICT | 测试: 各列组合
-- [ ] **SS2-04** organizer 导入时写 event 身份开关(`identity_require_*`/`multi_company`)并校验名单列与开关一致 — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 列/开关不一致 400 | 测试: 一致/不一致
-- [ ] **SS2-05** repo 因子化白名单匹配 `MatchWhitelist(eventID, factors)`（按 company/phone/name 开关组合 WHERE，必校 employee_number+phone_last4） — Modify `internal/repo/repo.go` | 验收: 必校命中、可选按开关 | 测试: 因子矩阵
-- [ ] **SS2-06** loginguard 增 scope 支持 `participant:{event_id}`（无需改实现，约定 key） — Modify `internal/organizer`? 否→ 使用现有 Guard | 验收: 独立计数 | 测试: 锁定独立
-- [ ] **SS2-07** participation `POST /p/e/{id}/login`：限流+守卫+turnstile+因子校验→upsert participant(staff,复用 UpsertParticipantFull)+ClaimWhitelist 绑指纹+签 participant JWT(写 claimed_jwt_jti) — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 错误码齐(bad_credentials/missing_factor/...) | 测试: 成功+各失败
-- [ ] **SS2-08** participation `POST /p/e/{id}/logout`：jti 加入 `sess:p:{jti}` 撤销集 — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 登出后令牌失效 | 测试: 登出后 401
-- [ ] **SS2-09** participation JWT 校验中间件含 jti 撤销检查 + 与 whitelist.claimed_jwt_jti 一致校验（顶号失效） — Modify `internal/participation/handler.go` | 验收: 旧 jti 被顶替即失效 | 测试: 双登录后旧失效
-- [ ] **SS2-10** participation `GET /p/e/{id}/me`（当前参与者 + 流程进度占位，SS-4 完善） — Modify `internal/participation/handler.go` | 验收: 返回身份 | 测试: 鉴权
-- [ ] **SS2-11** `GET /p/e/{id}`(Bootstrap) refactor：不再签 device-session，返回 event 元 + flow + 需登录标记 — Modify `internal/participation/handler.go` | 验收: 无 cookie、含 flow | 测试: 响应结构
-- [ ] **SS2-12** D3 告警：repo `AddWarning` + `participation_warning`（迁移并入 0008 或 0008b） — Modify `0008_*.sql`, `internal/repo/repo.go` | 验收: 落库 | 测试: 插入查询
-- [ ] **SS2-13** 指纹不一致策略：默认记 `participation_warning`；`event.strict_fingerprint` 则登录/提交拒绝并告警 — Modify `internal/participation/handler.go` | 验收: 两模式行为 | 测试: 宽松/严格
-- [ ] **SS2-14** repo 解绑事务 `UnbindWhitelist(entryID)`：清 claimed_* + status=unused + null 旧 participant.whitelist_entry_id + 撤 jti — Modify `internal/repo/repo.go` | 验收: 可重新登录绑定新设备 | 测试: 解绑后重登
-- [ ] **SS2-15** organizer `POST /org/events/{id}/whitelist/{entry}/unbind` + 租户校验 + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 仅本租户、写 audit | 测试: 跨租户拒绝
-- [ ] **SS2-16** legacy open participation 收束到 `CAPTAIN_OPEN_PARTICIPATION=off` 默认关闭 — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 默认匿名路径关闭 | 测试: off/on
-- [ ] **SS2-17** SS-2 阶段验收：build/vet/test + smoke（导入名单→登录→顶号→解绑→重登）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
+- [x] **SS2-02** identity 增 `company_norm(s)`（lower(trim) 空串归一） — Modify `internal/identity/identity.go` | 验收: 归一正确 | 测试: 多用例
+- [x] **SS2-03** repo whitelist 导入改可变表头解析 `employee_number,phone_last4[,name][,phone][,company]`；给全号则派生/校验后4位 — Modify `internal/repo/repo.go`, `internal/organizer/handler.go`(ImportWhitelist) | 验收: 缺必填行跳过并计数；冲突 ON CONFLICT | 测试: 各列组合
+- [x] **SS2-04** organizer 导入时写 event 身份开关(`identity_require_*`/`multi_company`)并校验名单列与开关一致 — Modify `internal/organizer/handler.go`, `internal/repo/repo.go` | 验收: 列/开关不一致 400 | 测试: 一致/不一致
+- [x] **SS2-05** repo 因子化白名单匹配 `MatchWhitelist(eventID, factors)`（按 company/phone/name 开关组合 WHERE，必校 employee_number+phone_last4） — Modify `internal/repo/repo.go` | 验收: 必校命中、可选按开关 | 测试: 因子矩阵
+- [x] **SS2-06** loginguard 增 scope 支持 `participant:{event_id}`（无需改实现，约定 key） — Modify `internal/organizer`? 否→ 使用现有 Guard | 验收: 独立计数 | 测试: 锁定独立
+- [x] **SS2-07** participation `POST /p/e/{id}/login`：限流+守卫+turnstile+因子校验→upsert participant(staff,复用 UpsertParticipantFull)+ClaimWhitelist 绑指纹+签 participant JWT(写 claimed_jwt_jti) — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 错误码齐(bad_credentials/missing_factor/...) | 测试: 成功+各失败
+- [x] **SS2-08** participation `POST /p/e/{id}/logout`：jti 加入 `sess:p:{jti}` 撤销集 — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 登出后令牌失效 | 测试: 登出后 401
+- [x] **SS2-09** participation JWT 校验中间件含 jti 撤销检查 + 与 whitelist.claimed_jwt_jti 一致校验（顶号失效） — Modify `internal/participation/handler.go` | 验收: 旧 jti 被顶替即失效 | 测试: 双登录后旧失效
+- [x] **SS2-10** participation `GET /p/e/{id}/me`（当前参与者 + 流程进度占位，SS-4 完善） — Modify `internal/participation/handler.go` | 验收: 返回身份 | 测试: 鉴权
+- [x] **SS2-11** `GET /p/e/{id}`(Bootstrap) refactor：不再签 device-session，返回 event 元 + flow + 需登录标记 — Modify `internal/participation/handler.go` | 验收: 无 cookie、含 flow | 测试: 响应结构
+- [x] **SS2-12** D3 告警：repo `AddWarning` + `participation_warning`（迁移并入 0008 或 0008b） — Modify `0008_*.sql`, `internal/repo/repo.go` | 验收: 落库 | 测试: 插入查询
+- [x] **SS2-13** 指纹不一致策略：默认记 `participation_warning`；`event.strict_fingerprint` 则登录/提交拒绝并告警 — Modify `internal/participation/handler.go` | 验收: 两模式行为 | 测试: 宽松/严格
+- [x] **SS2-14** repo 解绑事务 `UnbindWhitelist(entryID)`：清 claimed_* + status=unused + null 旧 participant.whitelist_entry_id + 撤 jti — Modify `internal/repo/repo.go` | 验收: 可重新登录绑定新设备 | 测试: 解绑后重登
+- [x] **SS2-15** organizer `POST /org/events/{id}/whitelist/{entry}/unbind` + 租户校验 + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 仅本租户、写 audit | 测试: 跨租户拒绝
+- [x] **SS2-16** legacy open participation 收束到 `CAPTAIN_OPEN_PARTICIPATION=off` 默认关闭 — Modify `internal/participation/handler.go`, `cmd/server/main.go` | 验收: 默认匿名路径关闭 | 测试: off/on
+- [x] **SS2-17** SS-2 阶段验收：build/vet/test + smoke（导入名单→登录→顶号→解绑→重登）全绿 — | 验收: 三连绿+smoke | 测试: smoke 段
 
 ## Phase SS-3 — 活动与内容编排
 
