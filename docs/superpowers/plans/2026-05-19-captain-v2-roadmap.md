@@ -39,12 +39,12 @@
 
 ## Phase SS-0 — 平台基座（超管：账号/权限/配置/DB导出/审计）
 
-- [ ] **SS0-01** repo `ListOrganizers` 改含权限位/状态/排除软删 — Modify `internal/repo/repo.go`, `internal/domain/models.go`(Organizer 加 Perm/DeletedAt) | 验收: 软删不返回 | 测试: 插入软删后列表断言
-- [ ] **SS0-02** repo `SoftDeleteOrganizer(id)`（置 deleted_at + 名下 event 不可登录标记） — Modify `internal/repo/repo.go` | 验收: 幂等、连带 | 测试: 软删后登录被拒
+- [x] **SS0-01** repo `ListOrganizers` 改含权限位/状态/排除软删 — Modify `internal/repo/repo.go`, `internal/domain/models.go`(Organizer 加 Perm/DeletedAt) | 验收: 软删不返回 | 测试: 插入软删后列表断言
+- [x] **SS0-02** repo `SoftDeleteOrganizer(id)`（置 deleted_at + 名下 event 不可登录标记） — Modify `internal/repo/repo.go` | 验收: 幂等、连带 | 测试: 软删后登录被拒
 - [ ] **SS0-03** admin `DELETE /organizers/{id}` handler + 路由 + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅超管、写 audit | 测试: 鉴权+审计断言
-- [ ] **SS0-04** repo `ResetOrganizerPassword(id,hash)` — Modify `internal/repo/repo.go` | 验收: 更新成功 | 测试: 新密码可登录
+- [x] **SS0-04** repo `ResetOrganizerPassword(id,hash)` — Modify `internal/repo/repo.go` | 验收: 更新成功 | 测试: 新密码可登录
 - [ ] **SS0-05** admin `POST /organizers/{id}/password` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: bcrypt 重置 | 测试: 旧失效新生效
-- [ ] **SS0-06** repo `SetOrganizerPermissions(id,perms)` + perm_version+1 + 失效 `perm:org:{id}` — Modify `internal/repo/repo.go` | 验收: 版本自增、缓存失效 | 测试: 版本递增断言
+- [x] **SS0-06** repo `SetOrganizerPermissions(id,perms)` + perm_version+1 + 失效 `perm:org:{id}` — Modify `internal/repo/repo.go` | 验收: 版本自增、缓存失效 | 测试: 版本递增断言
 - [ ] **SS0-07** admin `PATCH /organizers/{id}/permissions` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅 3 个布尔位、即时生效 | 测试: 改后旧 JWT token_stale
 - [ ] **SS0-08** 组织方登录把权限位+perm_version写入 JWT — Modify `internal/organizer/handler.go` | 验收: JWT 携带 Perm/PermVersion | 测试: 解码断言
 - [ ] **SS0-09** organizer 受保护路由挂 `OrgPermMiddleware`（建活动需 can_create_event 等映射表） — Modify `cmd/server/main.go`, `internal/organizer/handler.go` | 验收: 无权限 403 perm_denied | 测试: 权限矩阵
