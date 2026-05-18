@@ -260,6 +260,31 @@ func (h *Handler) LotterySummary(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, sum)
 }
 
+// LotteryAuditExport: POST /org/events/{id}/lottery/audit/export — async
+// CSV of every draw → object storage, downloadable via /org/exports/{job}
+// (SS5-10). Reuses the export job pipeline (kind=lottery_audit).
+func (h *Handler) LotteryAuditExport(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	evID, ok := h.ownedEvent(w, r, orgID)
+	if !ok {
+		return
+	}
+	jobID, err := h.Repo.CreateExportJobKind(r.Context(), orgID, evID, "lottery_audit")
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "create job failed")
+		return
+	}
+	if err := h.Export.Request(r.Context(), jobID); err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "mq", "enqueue failed")
+		return
+	}
+	h.orgAudit(r, orgID, "lottery_audit_export", evID, map[string]any{"job": jobID})
+	httpx.JSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "pending"})
+}
+
 // EventConfig: POST /org/events/{id}/config — timezone + identity flags
 // + strict fingerprint (SS3-13).
 type eventConfigReq struct {

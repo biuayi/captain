@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/rand"
 	"time"
 
 	"github.com/hertz/captain/internal/audit"
 	"github.com/hertz/captain/internal/domain"
+	"github.com/hertz/captain/internal/lottery"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -1165,8 +1167,9 @@ func (r *Repo) UpsertLotteryPool(ctx context.Context, eventID, stepID, code, nam
 }
 
 func (r *Repo) UpsertLotteryPrize(ctx context.Context, eventID, stepID, poolCode, code, name, level string, stock, weight int, imageKey string) (string, error) {
-	if weight <= 0 {
-		weight = 1
+	// weight 0 = rig-only (excluded from weighted random); negative clamped.
+	if weight < 0 {
+		weight = 0
 	}
 	var id string
 	err := r.pg.QueryRow(ctx,
@@ -1417,6 +1420,244 @@ func (r *Repo) EventFunnel(ctx context.Context, eventID string) (map[string]any,
 	return map[string]any{
 		"by_stage": stages, "participated": participated, "completed": completed,
 	}, rows.Err()
+}
+
+// ---- SS-5: lottery draw (atomic, idempotent, auditable) ----
+
+type LotteryResult struct {
+	PrizeID    string `json:"prize_id,omitempty"`
+	PrizeCode  string `json:"prize_code,omitempty"`
+	PrizeName  string `json:"prize_name,omitempty"`
+	Level      string `json:"prize_level"`
+	PoolID     string `json:"pool_id,omitempty"`
+	ResolvedBy string `json:"resolved_by"` // rig | random | miss
+	Repeat     bool   `json:"repeat"`      // true if a prior draw was returned
+}
+
+// DrawLottery performs one draw for a participant with strict guarantees:
+// per-participant serialization via a transaction advisory lock, one-draw
+// idempotency (lottery_result UNIQUE), pool-scoped rig-then-weighted-random,
+// and atomic stock decrement (conditional UPDATE — same pattern as
+// MarkCheckin/ClaimWhitelist). employeeNumber may be "" (→ default pool/miss).
+func (r *Repo) DrawLottery(ctx context.Context, eventID, stepID, participantID, employeeNumber string) (LotteryResult, error) {
+	tx, err := r.pg.Begin(ctx)
+	if err != nil {
+		return LotteryResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	lockKey := eventID + ":" + stepID + ":" + participantID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
+		return LotteryResult{}, err
+	}
+
+	// idempotent: prior result wins
+	var res LotteryResult
+	var pid, poolID *string
+	e := tx.QueryRow(ctx,
+		`SELECT prize_id, pool_id, COALESCE(prize_level,''), resolved_by
+		   FROM lottery_result WHERE event_id=$1 AND step_id=$2 AND participant_id=$3`,
+		eventID, stepID, participantID).Scan(&pid, &poolID, &res.Level, &res.ResolvedBy)
+	if e == nil {
+		res.Repeat = true
+		if pid != nil {
+			res.PrizeID = *pid
+		}
+		if poolID != nil {
+			res.PoolID = *poolID
+		}
+		return res, tx.Commit(ctx)
+	} else if !errors.Is(e, pgx.ErrNoRows) {
+		return LotteryResult{}, e
+	}
+
+	// locate pool: membership → default
+	var pool string
+	pe := tx.QueryRow(ctx,
+		`SELECT pool_id::text FROM lottery_membership
+		  WHERE event_id=$1 AND step_id=$2 AND employee_number=$3`,
+		eventID, stepID, employeeNumber).Scan(&pool)
+	if errors.Is(pe, pgx.ErrNoRows) {
+		_ = tx.QueryRow(ctx,
+			`SELECT id::text FROM lottery_pool
+			  WHERE event_id=$1 AND step_id=$2 AND is_default LIMIT 1`,
+			eventID, stepID).Scan(&pool)
+	} else if pe != nil {
+		return LotteryResult{}, pe
+	}
+
+	finalize := func(prizeID, prizeCode, prizeName, level, resolvedBy, poolID string) (LotteryResult, error) {
+		var pIDArg, poolArg any
+		if prizeID != "" {
+			pIDArg = prizeID
+		}
+		if poolID != "" {
+			poolArg = poolID
+		}
+		if _, ierr := tx.Exec(ctx,
+			`INSERT INTO lottery_result
+			   (event_id, step_id, participant_id, pool_id, prize_id, prize_level, resolved_by)
+			 VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7)`,
+			eventID, stepID, participantID, poolArg, pIDArg, level, resolvedBy); ierr != nil {
+			return LotteryResult{}, ierr
+		}
+		return LotteryResult{PrizeID: prizeID, PrizeCode: prizeCode, PrizeName: prizeName,
+			Level: level, PoolID: poolID, ResolvedBy: resolvedBy}, tx.Commit(ctx)
+	}
+
+	if pool == "" {
+		return finalize("", "", "", "none", "miss", "")
+	}
+
+	decrement := func(prizeCode string) (id, name, level string, ok bool) {
+		e := tx.QueryRow(ctx,
+			`UPDATE lottery_prize SET drawn=drawn+1
+			  WHERE event_id=$1 AND step_id=$2 AND pool_id=$3 AND code=$4 AND drawn<stock
+			  RETURNING id::text, name, level`,
+			eventID, stepID, pool, prizeCode).Scan(&id, &name, &level)
+		return id, name, level, e == nil
+	}
+
+	// pool-internal rig: predetermined winner
+	var rigCode string
+	if e := tx.QueryRow(ctx,
+		`SELECT prize_code FROM lottery_rig_entry
+		  WHERE event_id=$1 AND step_id=$2 AND employee_number=$3`,
+		eventID, stepID, employeeNumber).Scan(&rigCode); e == nil {
+		if id, name, lvl, ok := decrement(rigCode); ok {
+			return finalize(id, rigCode, name, lvl, "rig", pool)
+		}
+		// rigged prize exhausted → fall through to random
+	}
+
+	// weighted random over pool's remaining stock
+	rows, err := tx.Query(ctx,
+		`SELECT id::text, code, level, weight, (stock-drawn)
+		   FROM lottery_prize
+		  WHERE event_id=$1 AND step_id=$2 AND pool_id=$3 AND drawn<stock`,
+		eventID, stepID, pool)
+	if err != nil {
+		return LotteryResult{}, err
+	}
+	type cand struct{ id, code, level string }
+	var cands []lottery.Candidate
+	var meta []cand
+	for rows.Next() {
+		var c lottery.Candidate
+		var m cand
+		if err := rows.Scan(&c.PrizeID, &m.code, &c.Level, &c.Weight, &c.Remaining); err != nil {
+			rows.Close()
+			return LotteryResult{}, err
+		}
+		m.id, m.level = c.PrizeID, c.Level
+		c.Code = m.code
+		cands = append(cands, c)
+		meta = append(meta, m)
+	}
+	rows.Close()
+
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for attempts := 0; attempts < len(cands)+1 && len(cands) > 0; attempts++ {
+		i := lottery.WeightedPick(cands, rng)
+		if i < 0 {
+			break
+		}
+		if id, name, lvl, ok := decrement(meta[i].code); ok {
+			return finalize(id, meta[i].code, name, lvl, "random", pool)
+		}
+		cands[i].Remaining = 0 // lost the race on this prize; retry others
+	}
+	return finalize("", "", "", "none", "miss", pool)
+}
+
+// CreateExportJobKind creates an organizer/event-scoped export job of a
+// given kind (participants | lottery_audit | warnings) (SS5-09/SS7-08).
+func (r *Repo) CreateExportJobKind(ctx context.Context, organizerID, eventID, kind string) (string, error) {
+	var id string
+	err := r.pg.QueryRow(ctx,
+		`INSERT INTO export_job (organizer_id, event_id, kind, format, status)
+		 VALUES ($1,$2,$3,'csv','pending') RETURNING id`,
+		organizerID, eventID, kind).Scan(&id)
+	return id, err
+}
+
+// ParticipantEmployee returns the whitelist employee_number bound to a
+// participant ("" for external/anon — resolves to default pool/miss).
+func (r *Repo) ParticipantEmployee(ctx context.Context, participantID string) (string, error) {
+	var emp *string
+	err := r.pg.QueryRow(ctx,
+		`SELECT w.employee_number
+		   FROM participant p
+		   LEFT JOIN event_whitelist_entry w ON w.id=p.whitelist_entry_id
+		  WHERE p.id=$1`, participantID).Scan(&emp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if emp == nil {
+		return "", err
+	}
+	return *emp, err
+}
+
+// LotteryResultOf returns a participant's recorded draw (SS5-06).
+func (r *Repo) LotteryResultOf(ctx context.Context, eventID, stepID, participantID string) (LotteryResult, error) {
+	var res LotteryResult
+	var pid, poolID, name *string
+	err := r.pg.QueryRow(ctx,
+		`SELECT lr.prize_id::text, lr.pool_id::text, COALESCE(lr.prize_level,''),
+		        lr.resolved_by, lp.name
+		   FROM lottery_result lr
+		   LEFT JOIN lottery_prize lp ON lp.id=lr.prize_id
+		  WHERE lr.event_id=$1 AND lr.step_id=$2 AND lr.participant_id=$3`,
+		eventID, stepID, participantID).Scan(&pid, &poolID, &res.Level, &res.ResolvedBy, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return res, ErrNotFound
+	}
+	if pid != nil {
+		res.PrizeID = *pid
+	}
+	if poolID != nil {
+		res.PoolID = *poolID
+	}
+	if name != nil {
+		res.PrizeName = *name
+	}
+	return res, err
+}
+
+// LotteryAuditRows streams every draw for audit export (SS5-09).
+type LotteryAuditRow struct {
+	EmployeeNumber, Name, Pool, ResolvedBy, PrizeCode, PrizeLevel string
+	DrawnAt                                                       time.Time
+}
+
+func (r *Repo) LotteryAuditRows(ctx context.Context, eventID, stepID string) ([]LotteryAuditRow, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT COALESCE(w.employee_number,''), COALESCE(w.name,''),
+		        COALESCE(po.code,''), lr.resolved_by,
+		        COALESCE(pz.code,''), COALESCE(lr.prize_level,''), lr.drawn_at
+		   FROM lottery_result lr
+		   JOIN participant pa ON pa.id=lr.participant_id
+		   LEFT JOIN event_whitelist_entry w ON w.id=pa.whitelist_entry_id
+		   LEFT JOIN lottery_pool po ON po.id=lr.pool_id
+		   LEFT JOIN lottery_prize pz ON pz.id=lr.prize_id
+		  WHERE lr.event_id=$1 AND ($2=''
+		     OR lr.step_id=$2)
+		  ORDER BY lr.drawn_at`, eventID, stepID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LotteryAuditRow
+	for rows.Next() {
+		var a LotteryAuditRow
+		if err := rows.Scan(&a.EmployeeNumber, &a.Name, &a.Pool, &a.ResolvedBy,
+			&a.PrizeCode, &a.PrizeLevel, &a.DrawnAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 // Pool exposes the pool for seed bootstrapping only.
