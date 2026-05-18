@@ -41,23 +41,23 @@
 
 - [x] **SS0-01** repo `ListOrganizers` 改含权限位/状态/排除软删 — Modify `internal/repo/repo.go`, `internal/domain/models.go`(Organizer 加 Perm/DeletedAt) | 验收: 软删不返回 | 测试: 插入软删后列表断言
 - [x] **SS0-02** repo `SoftDeleteOrganizer(id)`（置 deleted_at + 名下 event 不可登录标记） — Modify `internal/repo/repo.go` | 验收: 幂等、连带 | 测试: 软删后登录被拒
-- [ ] **SS0-03** admin `DELETE /organizers/{id}` handler + 路由 + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅超管、写 audit | 测试: 鉴权+审计断言
+- [x] **SS0-03** admin `DELETE /organizers/{id}` handler + 路由 + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅超管、写 audit | 测试: 鉴权+审计断言
 - [x] **SS0-04** repo `ResetOrganizerPassword(id,hash)` — Modify `internal/repo/repo.go` | 验收: 更新成功 | 测试: 新密码可登录
-- [ ] **SS0-05** admin `POST /organizers/{id}/password` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: bcrypt 重置 | 测试: 旧失效新生效
+- [x] **SS0-05** admin `POST /organizers/{id}/password` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: bcrypt 重置 | 测试: 旧失效新生效
 - [x] **SS0-06** repo `SetOrganizerPermissions(id,perms)` + perm_version+1 + 失效 `perm:org:{id}` — Modify `internal/repo/repo.go` | 验收: 版本自增、缓存失效 | 测试: 版本递增断言
-- [ ] **SS0-07** admin `PATCH /organizers/{id}/permissions` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅 3 个布尔位、即时生效 | 测试: 改后旧 JWT token_stale
+- [x] **SS0-07** admin `PATCH /organizers/{id}/permissions` + 审计 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 仅 3 个布尔位、即时生效 | 测试: 改后旧 JWT token_stale
 - [x] **SS0-08** 组织方登录把权限位+perm_version写入 JWT — Modify `internal/organizer/handler.go` | 验收: JWT 携带 Perm/PermVersion | 测试: 解码断言
 - [x] **SS0-09** organizer 受保护路由挂 `OrgPermMiddleware`（建活动需 can_create_event 等映射表） — Modify `cmd/server/main.go`, `internal/organizer/handler.go` | 验收: 无权限 403 perm_denied | 测试: 权限矩阵
 - [x] **SS0-10** repo `platform_config` Upsert/Get（值经 cryptobox 加密、masked 计算） — Modify `internal/repo/repo.go` | 验收: 密文落库、masked 仅尾4 | 测试: 加解密往返
-- [ ] **SS0-11** admin `GET /config`（回各 key set 与 masked，无明文） — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 不泄明文 | 测试: 响应无明文断言
-- [ ] **SS0-12** admin `PUT /config/{key}`（加密写库 + 审计 + 失效 platformcfg 缓存） — Modify `internal/admin/handler.go` | 验收: 写后 GET 显示 set=true | 测试: 往返
-- [ ] **SS0-13** turnstile/storage 启动改经 platformcfg 取凭据（env fallback） — Modify `cmd/server/main.go`, `internal/turnstile`, `internal/storage` 装配 | 验收: DB 配置优先生效 | 测试: 注入桩
-- [ ] **SS0-14** export_job 增 `kind`（迁移补列，0006 或 0006b）+ domain — Modify `0006_*.sql`, `internal/domain/models.go`, `internal/repo/repo.go` | 验收: 既有 csv job 兼容(kind 默认 participants) | 测试: 旧路径回归
-- [ ] **SS0-15** DB 导出 worker：消费 `export.requested`(kind=db_dump) → `pg_dump --no-owner` 流 → storage → 签名链接 — Modify `internal/export/export.go` | 验收: 产出可下载 dump | 测试: 小库 dump 冒烟
-- [ ] **SS0-16** admin `POST /db-export` `GET /db-export/{job}` + 审计 + 仅超管 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: job 流转 pending→done | 测试: 状态机
-- [ ] **SS0-17** admin `GET /audit?action=&from=&to=` — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 过滤+分页 | 测试: 数据集断言
-- [ ] **SS0-18** seed 改造：超管/活动方账号带默认权限位；移除旧寻道大千专属耦合（保留 demo 可控） — Modify `internal/seed/seed.go` | 验收: 启动 seed 不报错、账号有权限位 | 测试: seed_test 调整
-- [ ] **SS0-19** SS-0 阶段验收：build/vet/test + smoke（超管增删改权限/配置/审计）全绿 — | 验收: 三连绿+smoke | 测试: 扩展 smoke 段
+- [x] **SS0-11** admin `GET /config`（回各 key set 与 masked，无明文） — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 不泄明文 | 测试: 响应无明文断言
+- [x] **SS0-12** admin `PUT /config/{key}`（加密写库 + 审计 + 失效 platformcfg 缓存） — Modify `internal/admin/handler.go` | 验收: 写后 GET 显示 set=true | 测试: 往返
+- [x] **SS0-13** turnstile/storage 启动改经 platformcfg 取凭据（env fallback） — Modify `cmd/server/main.go`, `internal/turnstile`, `internal/storage` 装配 | 验收: DB 配置优先生效 | 测试: 注入桩
+- [x] **SS0-14** export_job 增 `kind`（迁移补列，0006 或 0006b）+ domain — Modify `0006_*.sql`, `internal/domain/models.go`, `internal/repo/repo.go` | 验收: 既有 csv job 兼容(kind 默认 participants) | 测试: 旧路径回归
+- [x] **SS0-15** DB 导出 worker：消费 `export.requested`(kind=db_dump) → `pg_dump --no-owner` 流 → storage → 签名链接 — Modify `internal/export/export.go` | 验收: 产出可下载 dump | 测试: 小库 dump 冒烟
+- [x] **SS0-16** admin `POST /db-export` `GET /db-export/{job}` + 审计 + 仅超管 — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: job 流转 pending→done | 测试: 状态机
+- [x] **SS0-17** admin `GET /audit?action=&from=&to=` — Modify `internal/admin/handler.go`, `cmd/server/main.go` | 验收: 过滤+分页 | 测试: 数据集断言
+- [x] **SS0-18** seed 改造：超管/活动方账号带默认权限位；移除旧寻道大千专属耦合（保留 demo 可控） — Modify `internal/seed/seed.go` | 验收: 启动 seed 不报错、账号有权限位 | 测试: seed_test 调整
+- [x] **SS0-19** SS-0 阶段验收：build/vet/test + smoke（超管增删改权限/配置/审计）全绿 — | 验收: 三连绿+smoke | 测试: 扩展 smoke 段
 
 ## Phase SS-1 — 模板注册与分发
 

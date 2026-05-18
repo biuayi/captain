@@ -9,9 +9,9 @@
 | 阶段 | 状态 |
 |---|---|
 | 探查/设计/路线图 | DONE（74aa371..47c03d7） |
-| **P0 跨切面基座（16）** | **DONE**（token/cryptobox/config/httpx-reqid/orgperm/authz/迁移0006/audit/platformcfg/testdb；build·vet·test ./... 全绿，真库验证） |
-| SS-0 平台基座（19，SS0-10 已并入 P0） | 进行中（续：SS0-01..09,11..19） |
-| SS-1 模板（10） | TODO |
+| P0 跨切面基座（16） | DONE（token/cryptobox/config/httpx-reqid/orgperm/authz/迁移0006/audit/platformcfg/testdb；build·vet·test ./... 全绿，真库验证） |
+| **SS-0 平台基座（19）** | **DONE**（账号/权限+版本/软删/改密/加密配置/审计/DB导出/迁移0006·0006b；admin 集成测试+真库全绿） |
+| SS-1 模板（10） | 进行中（续点） |
 | SS-2 身份与登录（17） | TODO |
 | SS-3 编排（15） | TODO |
 | SS-4 运行时 R1/R2/R3（15） | TODO |
