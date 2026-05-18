@@ -94,10 +94,10 @@
 
 ## Phase SS-3 — 活动与内容编排
 
-- [ ] **SS3-01** flow schema v2：Step 增 `Stage`(R1-R4/none)；类型扩 `exam`/`lottery`；保留 6 旧类型 — Modify `internal/flow/flow.go` | 验收: 解析新字段 | 测试: 解析用例
-- [ ] **SS3-02** flow 校验：stage 合法、每 stage 类型绑定(R1=checkin/R2=form/R3=exam/R4=lottery)、entry/next 引用合法、checkin.days>=0 — Modify `internal/flow/flow.go`, `internal/flow/flow_test.go` | 验收: 非法 schema 报错 | 测试: 正反例
-- [ ] **SS3-03** flow 顺序门禁判定 `CanEnter(stage, doneStages)`（仅串已启用 stage） — Modify `internal/flow/flow.go` | 验收: 跳过未启用、串已启用 | 测试: 组合矩阵
-- [ ] **SS3-04** flow per-step config 形状校验（form.fields/exam.config/lottery.config） — Modify `internal/flow/flow.go` | 验收: 缺字段报错 | 测试: 每类型
+- [x] **SS3-01** flow schema v2：Step 增 `Stage`(R1-R4/none)；类型扩 `exam`/`lottery`；保留 6 旧类型 — Modify `internal/flow/flow.go` | 验收: 解析新字段 | 测试: 解析用例
+- [x] **SS3-02** flow 校验：stage 合法、每 stage 类型绑定(R1=checkin/R2=form/R3=exam/R4=lottery)、entry/next 引用合法、checkin.days>=0 — Modify `internal/flow/flow.go`, `internal/flow/flow_test.go` | 验收: 非法 schema 报错 | 测试: 正反例
+- [x] **SS3-03** flow 顺序门禁判定 `CanEnter(stage, doneStages)`（仅串已启用 stage） — Modify `internal/flow/flow.go` | 验收: 跳过未启用、串已启用 | 测试: 组合矩阵
+- [x] **SS3-04** flow per-step config 形状校验（form.fields/exam.config/lottery.config） — Modify `internal/flow/flow.go` | 验收: 缺字段报错 | 测试: 每类型
 - [ ] **SS3-05** 迁移 0009：`exam_question` — Create `internal/store/migrations/0009_exam.sql` | 验收: 幂等 | 测试: 列断言
 - [ ] **SS3-06** repo exam 题库 import(覆盖式)/list — Modify `internal/repo/repo.go` | 验收: 覆盖旧题、随机题数<=题量校验 | 测试: 导入+越界拒绝
 - [ ] **SS3-07** organizer `POST /org/events/{id}/exam/import` `GET .../exam` + 审计 — Modify `internal/organizer/handler.go`, `cmd/server/main.go` | 验收: 仅本租户 | 测试: 鉴权+往返
