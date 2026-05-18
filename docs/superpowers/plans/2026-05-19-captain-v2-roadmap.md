@@ -27,14 +27,14 @@
 - [x] **P0-05** config 增 `ConfigKey`(`CAPTAIN_CONFIG_KEY`)、`OpenParticipation`(bool,默认 false) — Modify `internal/config/config.go` | 验收: 默认值正确，弱默认告警 | 测试: env 覆盖
 - [x] **P0-06** httpx 增 `RequestID` 中间件（透传 `X-Request-Id` 或生成）写入 ctx+响应头 — Create `internal/httpx/requestid.go`, Modify `cmd/server/main.go` | 验收: 每响应带 X-Request-Id | 测试: 有/无入站头两路径
 - [x] **P0-07** httpx 错误信封加 `request_id`（从 ctx 取） — Modify `internal/httpx/response.go` | 验收: Fail 输出含 request_id | 测试: 断言字段
-- [ ] **P0-08** 迁移 0006 文件：`organizer` 加权限位/软删/perm_version + `platform_config` + `audit_log` — Create `internal/store/migrations/0006_platform_base.sql` | 验收: 迁移幂等可重入跑通 | 测试: migrate 后 `\d` 断言列存在
+- [x] **P0-08** 迁移 0006 文件：`organizer` 加权限位/软删/perm_version + `platform_config` + `audit_log` — Create `internal/store/migrations/0006_platform_base.sql` | 验收: 迁移幂等可重入跑通 | 测试: migrate 后 `\d` 断言列存在
 - [ ] **P0-09** 新增 `internal/audit`：`Repo.Append(ctx, entry)` 写 `audit_log`（append-only） — Create `internal/audit/audit.go`, Modify `internal/repo/repo.go` | 验收: 落库成功 | 测试: 插入+查询
 - [ ] **P0-10** audit 查询 `List(action,from,to,limit)` — Modify `internal/repo/repo.go` | 验收: 过滤+倒序 | 测试: 多条过滤断言
 - [ ] **P0-11** 新增 `internal/platformcfg`：读 `platform_config` 解密 + 进程内缓存 + env fallback — Create `internal/platformcfg/platformcfg.go` | 验收: DB 有则用 DB，无则 env | 测试: 两路径
 - [ ] **P0-12** httpx 新增统一鉴权辅助 `AuthClaims(r, sig, role)` 复用三域 — Create `internal/httpx/authz.go` | 验收: 角色不符返回 false | 测试: 角色矩阵
 - [ ] **P0-13** httpx 新增 `OrgPermMiddleware`（校验 JWT.Perm + Redis perm_version，新鲜则放行，过期回 `token_stale`） — Create `internal/httpx/orgperm.go` | 验收: 版本不一致 401 token_stale；Redis 挂 fail-open 信任 JWT | 测试: 三路径
 - [ ] **P0-14** repo 增 `OrganizerPermVersion(ctx,id)` + Redis `perm:org:{id}` 读写封装 — Modify `internal/repo/repo.go`, `internal/loginguard`? 否→ Create `internal/orgperm/cache.go` | 验收: 读写一致、缺省=1 | 测试: 命中/回源
-- [ ] **P0-15** 测试基建：`internal/store` 测试用迁移跑库 helper（docker compose pg）+ `scripts/testdb.sh` — Create `scripts/testdb.sh` | 验收: 一键起测试库跑迁移 | 测试: 脚本退出码 0
+- [x] **P0-15** 测试基建：`internal/store` 测试用迁移跑库 helper（docker compose pg）+ `scripts/testdb.sh` — Create `scripts/testdb.sh` | 验收: 一键起测试库跑迁移 | 测试: 脚本退出码 0
 - [ ] **P0-16** P0 阶段验收：build/vet/test 全绿 + 提交基座 — | 验收: CI 三连绿 | 测试: 全量 `go test ./...`
 
 ## Phase SS-0 — 平台基座（超管：账号/权限/配置/DB导出/审计）
