@@ -12,8 +12,8 @@
 | P0 跨切面基座（16） | DONE（token/cryptobox/config/httpx-reqid/orgperm/authz/迁移0006/audit/platformcfg/testdb；build·vet·test ./... 全绿，真库验证） |
 | **SS-0 平台基座（19）** | **DONE**（账号/权限+版本/软删/改密/加密配置/审计/DB导出/迁移0006·0006b；admin 集成测试+真库全绿） |
 | SS-1 模板（10） | DONE（迁移0007/storage SignedURL/admin模板CRUD+资源/org可见性+缓存；真库全绿） |
-| SS-2 身份与登录（17） | 进行中 |
-| SS-3 编排（15） | TODO |
+| SS-2 身份与登录（17） | DONE（迁移0008/因子登录/顶号/解绑/D3严格/legacy门控；登录流集成测试真库全绿） |
+| SS-3 编排（15） | 进行中 |
 | SS-4 运行时 R1/R2/R3（15） | TODO |
 | SS-5 抽奖多奖池（14） | TODO |
 | SS-6 大屏（7） | TODO |
