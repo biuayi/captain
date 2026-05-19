@@ -451,7 +451,9 @@ func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]Particip
 		        pt.completed_all, p.profile,
 		        pt.checkin_at, pt.status, COALESCE(pt.last_step_id,''), p.first_seen_at,
 		        COALESCE(f.payload,'{}'::jsonb),
-		        pt.checkin_lat, pt.checkin_lng, pt.checkin_accuracy
+		        COALESCE(cd.lat, pt.checkin_lat),
+		        COALESCE(cd.lng, pt.checkin_lng),
+		        COALESCE(cd.accuracy, pt.checkin_accuracy)
 		 FROM participant p
 		 JOIN participation pt ON pt.participant_id = p.id
 		 LEFT JOIN event_whitelist_entry w ON w.id = p.whitelist_entry_id
@@ -460,6 +462,11 @@ func (r *Repo) ListParticipants(ctx context.Context, eventID string) ([]Particip
 		   WHERE sr.participation_id = pt.id AND sr.step_type='form'
 		   ORDER BY sr.occurred_at DESC LIMIT 1
 		 ) f ON true
+		 LEFT JOIN LATERAL (
+		   SELECT lat, lng, accuracy FROM checkin_day d
+		   WHERE d.participation_id = pt.id AND d.lat IS NOT NULL
+		   ORDER BY d.day_date DESC LIMIT 1
+		 ) cd ON true
 		 WHERE p.event_id=$1
 		 ORDER BY p.first_seen_at ASC`, eventID)
 	if err != nil {

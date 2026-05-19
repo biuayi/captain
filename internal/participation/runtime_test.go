@@ -80,8 +80,8 @@ func TestRuntimeStageGatingAndScoring(t *testing.T) {
 	if c, _ := post("r2", `{"fields":{"a":"b"}}`); c != http.StatusConflict {
 		t.Fatalf("R2 before R1 = %d want 409", c)
 	}
-	// R1 checkin (days=1) completes R1; carry device_id (G2)
-	c, m := post("r1", `{"device_id":"dev-XYZ-9"}`)
+	// R1 checkin (days=1) completes R1; carry device_id (G2) + geo (G7)
+	c, m := post("r1", `{"device_id":"dev-XYZ-9","geo":{"lat":31.23,"lng":121.47,"accuracy":8}}`)
 	if c != http.StatusOK || m["stage_complete"] != true {
 		t.Fatalf("R1 = %d %v", c, m)
 	}
@@ -110,5 +110,13 @@ func TestRuntimeStageGatingAndScoring(t *testing.T) {
 	}
 	if dev == nil || *dev != "dev-XYZ-9" {
 		t.Fatalf("device_id = %v want dev-XYZ-9 (G2)", dev)
+	}
+	// G7: per-day checkin geo must surface in records (was empty for v2)
+	prs, err := r.ListParticipants(ctx, evID)
+	if err != nil || len(prs) != 1 {
+		t.Fatalf("ListParticipants = %d %v", len(prs), err)
+	}
+	if prs[0].Lat == nil || *prs[0].Lat < 31.0 || *prs[0].Lat > 31.5 {
+		t.Fatalf("record lat = %v want ~31.23 (G7 checkin_day geo)", prs[0].Lat)
 	}
 }
