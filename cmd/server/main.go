@@ -252,8 +252,16 @@ func run() error {
 	mux.Handle("GET /m-static/", http.StripPrefix("/m-static/", webui.ReactStatic("mobile")))
 	mux.HandleFunc("GET /screen/{event_id}", webui.Screen())
 	mux.Handle("GET /s-static/", http.StripPrefix("/s-static/", webui.ReactStatic("bigscreen")))
+	// admin SPA dual-route (same single embedded build): /console = 活动方
+	// (org) mode, the obfuscated seg = 超管 (super) mode. The SPA shell reads
+	// window.__ADMIN_MODE__ / window.__ADMIN_SEG__ at first paint; we inject
+	// them via the existing webui.ReactIndex splice (same mechanism mobile's
+	// GET /m/{event_id} uses), so this is webui wiring only — no business
+	// logic, no auth/route change.
+	mux.HandleFunc("GET /console", webui.ReactIndex("admin",
+		`<script>window.__ADMIN_MODE__="org";window.__ADMIN_SEG__=""</script>`))
 	mux.HandleFunc("GET /"+ap, webui.ReactIndex("admin",
-		`<script>window.__ADMIN_SEG__="`+ap+`"</script>`))
+		`<script>window.__ADMIN_MODE__="super";window.__ADMIN_SEG__="`+ap+`"</script>`))
 	mux.Handle("GET /a-static/", http.StripPrefix("/a-static/", webui.ReactStatic("admin")))
 	mux.HandleFunc("GET /assets/{name}", webui.Asset())
 

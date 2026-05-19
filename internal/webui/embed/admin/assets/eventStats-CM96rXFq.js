@@ -1,0 +1,1 @@
+import{o as s}from"./index-Da23aKEG.js";function i(n,e,t){const o=t?{signal:t}:{};return s(`/events/${encodeURIComponent(n)}/stats`,o,e)}function r(n,e,t){const o=t?{signal:t}:{};return s(`/events/${encodeURIComponent(n)}`,o,e)}async function f(n,e,t){return await s(`/events/${encodeURIComponent(n)}/config`,{method:"POST",body:JSON.stringify(e)},t)}export{i as a,r as f,f as p};

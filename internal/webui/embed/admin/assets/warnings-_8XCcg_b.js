@@ -1,0 +1,1 @@
+import{o as t}from"./index-Da23aKEG.js";function s(n,e,o){return t(`/events/${encodeURIComponent(e)}/warnings`,{signal:o},n)}function a(n,e){return t(`/events/${encodeURIComponent(e)}/warnings/export`,{method:"POST"},n)}export{s as l,a as s};

@@ -1,0 +1,1 @@
+import{r as t}from"./index-Da23aKEG.js";function n(e){t.useEffect(()=>{if(!e||typeof document>"u")return;const o=document.body.style.overflow;return document.body.style.overflow="hidden",()=>{document.body.style.overflow=o}},[e])}export{n as u};

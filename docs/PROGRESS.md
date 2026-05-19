@@ -58,3 +58,15 @@
 - 本次 captain 侧仅提交 `internal/webui/embed/mobile/`（构建产物，git-tracked）+ 本 `docs/PROGRESS.md`；F2 微调 ea30120/73b4c0b 早已在分支内。
 - **push / PR / merge：PENDING USER DECISION** —— captain `feat/v2-redesign` 与 check-in-kiosk `feat/v2-mobile` 均仅本地提交，未 push、未开 PR。
 - **下一子项目**：big-screen 前端（后端 typed SSE / prize.won 已就绪），其后 admin 前端；模板引擎本期不做。
+
+## admin v2 前端完成 + 双路由 webui 接线 + embed 集成（2026-05-20）
+
+配套前端仓库 `check-in-kiosk`（分支 `feat/v2-admin`）的 **admin v2 后台（活动方 + 超管）A0–A7 全部完成**。本次 captain 改动在新分支 `feat/admin-dual-route`（由 `main` 切出，**未 push**），是 admin 前端设计 spec §1.1 约定的**唯一后端改动 —— 纯 webui 接线，无业务逻辑**。
+
+- **唯一后端改动（webui 接线，非业务逻辑）**：`cmd/server/main.go` 在既有 webui 路由块新增 `GET /console` → `webui.ReactIndex("admin", 注入 window.__ADMIN_MODE__="org";__ADMIN_SEG__="")`（活动方模式）；并把既有混淆超管路由 `GET /{seg}` 的注入扩展为 `window.__ADMIN_MODE__="super";__ADMIN_SEG__="{seg}"`（保留原 `__ADMIN_SEG__`，新增 `__ADMIN_MODE__`）。复用既有 `webui.ReactIndex` splice 机制与 `/a-static/` `ReactStatic("admin")` StripPrefix——与 mobile `GET /m/{event_id}` 同一机制。无新增 handler、无鉴权/路由表业务改动。新增 `internal/webui/webui_test.go` 钉死双路由注入与 `/a-static/` 资源（`go test ./internal/webui/` 绿）。
+- **复验无回归**：`go build ./...` + `go vet ./...` 全绿；`internal/webui` 等单测绿；`scripts/e2e.sh`（API-only，未改）**实跑 `E2E OK`**（embed + webui 改动不破坏 Go build/API 链）。
+- **embed 集成**：check-in-kiosk `scripts/embed-admin.sh`（mobile-F12 同款，路径安全护栏 `*/internal/webui/embed/admin`、幂等、清 stale）构建 `@kiosk/admin` 并刷新本仓 `internal/webui/embed/admin/`。`//go:embed embed` 在 `go build ./cmd/server` 时把该目录编进单二进制。A7-05 用真实 captain 二进制（含本次 webui 改动 + 新 embed）从 captain 自身 `/console`（活动方）与混淆 seg（超管）跑通 13 个 admin e2e spec（非 vite preview），截图证明生产单二进制双路由内嵌路径端到端可用。
+- **对账**：admin 前端全部 org/超管端点对 `cmd/server/main.go` 路由 + `docs/openapi.yaml` 核验，形对 check-in-kiosk `docs/A6-reconcile.md`；唯一残差 = `/org/flows`（GET+POST）已路由+被前端使用但未登记进 `docs/openapi.yaml`（captain 文档缺口，前端已对冻结 Go 源对齐，非缺陷）。明细见 check-in-kiosk `docs/A7-acceptance.md`。
+- 本次 captain 侧仅提交 `cmd/server/main.go` + `internal/webui/`（含 `webui_test.go` + `embed/admin/` 构建产物）+ 本 `docs/PROGRESS.md`；预存无关漂移 `D .claude/scheduled_tasks.lock` **未触碰、未 stage**。
+- **push / PR / merge：PENDING USER DECISION** —— captain `feat/admin-dual-route` 与 check-in-kiosk `feat/v2-admin` 均仅本地提交，未 push、未开 PR。
+- **下一子项目**：big-screen 前端（captain 仍服务旧 `screen.html`，后端 typed SSE / prize.won 已就绪）。
