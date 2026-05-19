@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -92,6 +93,31 @@ func (l *localFS) SignedURL(key string, ttl time.Duration) (string, error) {
 	}
 	exp := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)
 	return base + "?exp=" + exp + "&sig=" + url.QueryEscape(downloadSig(l.secret, key, exp)), nil
+}
+
+// SafeName sanitizes a client-supplied filename before it becomes part of a
+// storage key: keep [A-Za-z0-9._-], collapse the rest to '_', drop leading
+// dots/separators, cap length (S2 — defense in depth even though localFS is
+// root-confined and keys are HMAC-gated).
+func SafeName(name string) string {
+	b := make([]rune, 0, len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == '-':
+			b = append(b, r)
+		default:
+			b = append(b, '_')
+		}
+	}
+	s := strings.TrimLeft(string(b), "._-")
+	if len(s) > 80 {
+		s = s[len(s)-80:]
+	}
+	if s == "" {
+		s = "file"
+	}
+	return s
 }
 
 func downloadSig(secret, key, exp string) string {

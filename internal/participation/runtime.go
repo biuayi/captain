@@ -12,6 +12,7 @@ import (
 
 	"github.com/hertz/captain/internal/flow"
 	"github.com/hertz/captain/internal/httpx"
+	"github.com/hertz/captain/internal/storage"
 )
 
 // summarizeForm derives the two generic record columns from R2 form fields:
@@ -227,7 +228,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusRequestEntityTooLarge, "too_large", "文件过大(>10MB)")
 		return
 	}
-	key := fmt.Sprintf("uploads/%s/%s/%d_%s", eventID, claims.Subject, time.Now().UnixNano(), hdr.Filename)
+	key := fmt.Sprintf("uploads/%s/%s/%d_%s", eventID, claims.Subject, time.Now().UnixNano(), storage.SafeName(hdr.Filename))
 	if _, err := h.Store.Put(key, file); err != nil {
 		httpx.Fail(w, http.StatusInternalServerError, "storage", "存储失败")
 		return

@@ -36,8 +36,27 @@ func TestLocalSignedURLAuth(t *testing.T) {
 	if VerifyDownload("wrong-secret", key, exp, sig) {
 		t.Fatal("wrong secret must fail")
 	}
-	// secret unset → disabled (dev/local) passes
 	if !VerifyDownload("", key, "", "") {
 		t.Fatal("empty secret disables verification (dev)")
+	}
+}
+
+func TestSafeName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"../../etc/passwd", "etc_passwd"},
+		{"a b/c.png", "a_b_c.png"},
+		{"....", "file"},
+		{"", "file"},
+		{"good_File-1.JPG", "good_File-1.JPG"},
+		{"/leading", "leading"},
+		{"x y\nz", "x_y_z"},
+	}
+	for _, c := range cases {
+		if got := SafeName(c.in); got != c.want {
+			t.Errorf("SafeName(%q)=%q want %q", c.in, got, c.want)
+		}
+	}
+	if got := SafeName(strings.Repeat("a", 200) + ".png"); len(got) != 80 {
+		t.Errorf("len(SafeName(long))=%d want 80", len(got))
 	}
 }

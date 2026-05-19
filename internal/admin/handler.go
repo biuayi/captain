@@ -486,7 +486,7 @@ func (h *Handler) UploadTemplateAsset(w http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = "asset"
 	}
-	key := "templates/" + tplID + "/" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + hdr.Filename
+	key := "templates/" + tplID + "/" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + storage.SafeName(hdr.Filename)
 	if _, err := h.Store.Put(key, file); err != nil {
 		httpx.Fail(w, http.StatusInternalServerError, "storage", "存储失败")
 		return
