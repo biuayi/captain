@@ -86,7 +86,7 @@ func run() error {
 	})
 	pget := func(k string) string { v, _ := pcfg.Get(rootCtx, k); return v }
 	strg, err := storage.New(storage.Options{
-		Driver: cfg.StorageDriver, Dir: cfg.StorageDir,
+		Driver: cfg.StorageDriver, Dir: cfg.StorageDir, Secret: cfg.TokenSecret,
 		OSSEndpoint: pget("aliyun_oss_endpoint"), OSSBucket: pget("aliyun_oss_bucket"),
 		OSSKeyID: pget("aliyun_oss_key_id"), OSSKeySecret: pget("aliyun_oss_key_secret"),
 	})
@@ -212,9 +212,16 @@ func run() error {
 	mux.HandleFunc("PUT "+apiAdmin+"/templates/{id}", ad.UpdateTemplate)
 	mux.HandleFunc("DELETE "+apiAdmin+"/templates/{id}", ad.DeleteTemplate)
 	mux.HandleFunc("POST "+apiAdmin+"/templates/{id}/assets", ad.UploadTemplateAsset)
-	// local-storage signed-URL proxy (SS1-03): streams a stored object.
+	// local-storage signed-URL proxy (SS1-03): streams a stored object only
+	// with a valid, unexpired HMAC (S1 — was unauthenticated).
 	mux.HandleFunc("GET /dl/{key...}", func(w http.ResponseWriter, rq *http.Request) {
-		rc, err := strg.Open(rq.PathValue("key"))
+		key := rq.PathValue("key")
+		q := rq.URL.Query()
+		if !storage.VerifyDownload(cfg.TokenSecret, key, q.Get("exp"), q.Get("sig")) {
+			httpx.Fail(w, http.StatusForbidden, "bad_signature", "下载链接无效或已过期")
+			return
+		}
+		rc, err := strg.Open(key)
 		if err != nil {
 			httpx.Fail(w, http.StatusNotFound, "not_found", "对象不存在")
 			return
