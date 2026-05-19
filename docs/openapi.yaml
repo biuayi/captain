@@ -15,7 +15,7 @@ paths:
   /healthz: { get: { tags: [participation], summary: 健康检查, responses: { "200": { description: ok } } } }
 
   /api/v1/p/e/{event_id}:
-    get: { tags: [participation], summary: "落地：校验 event_token，回 event+flow+need_login", parameters: [{name: event_id, in: path, required: true, schema: {type: string}}], responses: { "200": { description: ok } } }
+    get: { tags: [participation], summary: "落地：校验 event_token，回 event+flow+need_login+identity", description: "验证 event_token 后返回 event/flow/need_login，以及 identity:{require_name,require_phone,multi_company} 表示本活动的登录字段要求（EventIdentity 查询失败时 identity 字段省略，不影响落地）。", parameters: [{name: event_id, in: path, required: true, schema: {type: string}}], responses: { "200": { description: "ok — 含 identity 对象" } } }
   /api/v1/p/e/{event_id}/login:
     post: { tags: [participation], summary: "参与者登录(工号+手机后4位[+name/phone/company])→JWT", responses: { "200": {description: token}, "401": {description: bad_credentials}, "403": {description: captcha_failed}, "423": {description: account_locked} } }
   /api/v1/p/e/{event_id}/logout:
