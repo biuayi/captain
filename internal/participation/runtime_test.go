@@ -20,6 +20,76 @@ import (
 	"github.com/hertz/captain/internal/turnstile"
 )
 
+// TestBootstrapIdentityFlags asserts that GET /p/e/{event_id} returns an
+// "identity" object with require_name/require_phone/multi_company matching the
+// event's stored identity-factor flags (F2-01; decision: landing not /p/config).
+func TestBootstrapIdentityFlags(t *testing.T) {
+	pool := testdb.Pool(t)
+	rdb := testdb.Redis(t)
+	r := repo.New(pool)
+	sig := token.New("bs")
+	ctx := context.Background()
+	suf := time.Now().UnixNano()
+
+	orgID, _ := r.CreateOrganizer(ctx, "C2", fmt.Sprintf("c2-%d", suf), "h")
+	flowJSON := `{"version":2,"flowId":"f2","name":"n2","entryStepId":"s1","steps":[{"id":"s1","type":"checkin","stage":"R1"}]}`
+	flowID, _ := r.CreateFlowConfig(ctx, orgID, "f2", []byte(flowJSON))
+	evID, _ := r.CreateEvent(ctx, orgID, "BootstrapE", time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour), 10, "ink-wash-default", flowID)
+	_ = r.SetEventStatus(ctx, evID, orgID, "active")
+
+	// Set identity flags: require_name=true, require_phone=true, multi_company=false
+	if err := r.SetEventIdentityFlags(ctx, evID, orgID, true, true, false); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &participation.Handler{
+		Repo: r, Sig: sig, RT: realtime.New(rdb, r), RL: httpx.NewRateLimiter(rdb),
+		TS: turnstile.New("off", "", ""), RDB: rdb,
+		Store: func() storage.Storage { s, _ := storage.New(storage.Options{Driver: "local", Dir: t.TempDir()}); return s }(),
+		Pepper: "p",
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /p/e/{event_id}", h.Bootstrap)
+	srv := httptest.NewServer(httpx.RequestID(mux))
+	defer srv.Close()
+
+	// mint a valid event token
+	et, _ := sig.Sign(token.Claims{Kind: token.KindEvent, EventID: evID, ExpiresAt: 1 << 62})
+
+	resp, err := http.Get(srv.URL + "/p/e/" + evID + "?et=" + et)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Bootstrap status = %d want 200", resp.StatusCode)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+
+	iRaw, ok := body["identity"]
+	if !ok {
+		t.Fatal("response missing 'identity' field")
+	}
+	iMap, ok := iRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("'identity' is not an object: %T", iRaw)
+	}
+	if iMap["require_name"] != true {
+		t.Errorf("identity.require_name = %v want true", iMap["require_name"])
+	}
+	if iMap["require_phone"] != true {
+		t.Errorf("identity.require_phone = %v want true", iMap["require_phone"])
+	}
+	if iMap["multi_company"] != false {
+		t.Errorf("identity.multi_company = %v want false", iMap["multi_company"])
+	}
+}
+
 func TestRuntimeStageGatingAndScoring(t *testing.T) {
 	pool := testdb.Pool(t)
 	rdb := testdb.Redis(t)

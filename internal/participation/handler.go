@@ -101,11 +101,22 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httpx.JSON(w, http.StatusOK, map[string]any{
+	// F2-01: include identity-factor flags so the mobile frontend knows which
+	// login fields to render. On error (e.g. misconfigured event), omit the
+	// field (don't fail landing). Decision: expose on landing, not /p/config.
+	resp := map[string]any{
 		"event":      ev,
 		"flow":       json.RawMessage(raw),
 		"need_login": !h.OpenLegacy,
-	})
+	}
+	if idc, err := h.Repo.EventIdentity(r.Context(), eventID); err == nil {
+		resp["identity"] = map[string]any{
+			"require_name":  idc.RequireName,
+			"require_phone": idc.RequirePhone,
+			"multi_company": idc.MultiCompany,
+		}
+	}
+	httpx.JSON(w, http.StatusOK, resp)
 }
 
 // submitReq is the step submission body (SS-4; identity now via JWT).
