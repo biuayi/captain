@@ -129,7 +129,7 @@ func run() error {
 		}
 	}()
 
-	guard := loginguard.New(st.Redis)
+	guard := loginguard.NewWithPolicy(st.Redis, cfg.LoginFailClosed)
 	ts := turnstile.New(cfg.TurnstileMode, pget("cloudflare_turnstile_sitekey"), pget("cloudflare_turnstile_secret"))
 	if ts.Enabled() {
 		log.Printf("turnstile: ENFORCE (sitekey set=%v)", cfg.TurnstileSite != "")
