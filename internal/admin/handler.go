@@ -51,6 +51,11 @@ var ConfigKeys = []string{
 	"aliyun_oss_bucket",
 	"aliyun_oss_key_id",
 	"aliyun_oss_key_secret",
+	"aliyun_cdn_domain",
+	"aliyun_sms_access_key_id",
+	"aliyun_sms_access_key_secret",
+	"aliyun_sms_sign_name",
+	"aliyun_sms_template_code",
 }
 
 type loginReq struct {
