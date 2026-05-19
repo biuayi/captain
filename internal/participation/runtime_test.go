@@ -80,8 +80,8 @@ func TestRuntimeStageGatingAndScoring(t *testing.T) {
 	if c, _ := post("r2", `{"fields":{"a":"b"}}`); c != http.StatusConflict {
 		t.Fatalf("R2 before R1 = %d want 409", c)
 	}
-	// R1 checkin (days=1) completes R1
-	c, m := post("r1", `{}`)
+	// R1 checkin (days=1) completes R1; carry device_id (G2)
+	c, m := post("r1", `{"device_id":"dev-XYZ-9"}`)
 	if c != http.StatusOK || m["stage_complete"] != true {
 		t.Fatalf("R1 = %d %v", c, m)
 	}
@@ -103,9 +103,12 @@ func TestRuntimeStageGatingAndScoring(t *testing.T) {
 	if fn["completed"].(int64) != 1 {
 		t.Fatalf("completed funnel = %v want 1", fn["completed"])
 	}
-	var f1, f2 *string
-	_ = pool.QueryRow(ctx, `SELECT data_field_1, data_field_2 FROM participation WHERE id=(SELECT id FROM participation WHERE event_id=$1 AND participant_id=$2)`, evID, pid).Scan(&f1, &f2)
+	var f1, f2, dev *string
+	_ = pool.QueryRow(ctx, `SELECT data_field_1, data_field_2, device_id FROM participation WHERE event_id=$1 AND participant_id=$2`, evID, pid).Scan(&f1, &f2, &dev)
 	if f2 == nil || *f2 != "uploads/k" {
 		t.Fatalf("data_field_2 (oss key) = %v want uploads/k", f2)
+	}
+	if dev == nil || *dev != "dev-XYZ-9" {
+		t.Fatalf("device_id = %v want dev-XYZ-9 (G2)", dev)
 	}
 }

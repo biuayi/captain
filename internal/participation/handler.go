@@ -114,6 +114,7 @@ type submitReq struct {
 	Answers   map[string][]int `json:"answers"`         // exam (R3): qIdx -> picked option idxs
 	Answer    *int             `json:"answer"`          // game (legacy)
 	Pledge    bool             `json:"pledge"`          // charity
+	DeviceID  string           `json:"device_id"`       // client device id (G2; export-visible)
 	Turnstile string           `json:"turnstile_token"` // checkin captcha
 	Geo       *struct {
 		Lat      float64 `json:"lat"`
@@ -213,6 +214,9 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 
 	var body submitReq
 	_ = httpx.DecodeJSON(r, &body)
+	if body.DeviceID != "" { // G2: capture device id (export-visible record field)
+		_ = h.Repo.SetDataFields(r.Context(), partcpnID, "", "", body.DeviceID)
+	}
 	resp := map[string]any{"stepId": stepID, "nextStepId": step.NextStepID}
 
 	switch step.Type {
