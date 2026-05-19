@@ -46,3 +46,15 @@
 - G5 → scripts/e2e.sh 真 cmd/server 全链 e2e，**实跑通过**；smoke.sh 串联
 - 复验：go build/vet/test ./... 全绿（15 包，真库）；e2e 活服务绿
 - 仅剩范围说明 G6（前端 deferred，需 check-in-kiosk）——非后端缺陷
+
+## mobile v2 前端完成 + embed 集成（2026-05-19，闭合 G6）
+
+配套前端仓库 `check-in-kiosk`（分支 `feat/v2-mobile`）的 **mobile v2 参与者端 F0–F12 全部完成**，G6（前端 deferred）就此闭合。
+
+- **前端门禁全绿（实跑）**：typecheck 净；vite build 产 dist（~67.6 KB gzip，0 sourcemap）；vitest **42 files / 445 tests**；F11 e2e（vite-preview）**4/4**；F12-03 内嵌 e2e **4/4**；详见 check-in-kiosk `docs/F12-acceptance.md`。
+- **F8/F9/F10/F11 shared-vs-backend 契约修复（前端侧对齐冻结后端，后端 Go 未改）**：`LandingResp.identity?`（对齐 F2-01 ea30120 微调）；`StepState` 无 `completed`/`data`，`days_done` 顶层（对齐 `runtime.go` StepGet）；`DrawResult` 扁平形（`resolved_by`/`prize_level`/`repeat`，对齐 Draw/DrawResult）；`LoginReq` 故意不发 `fingerprint`（字符串会硬挂 Go JSON decode）；`Warning` 无 `id`（对齐 repo WarningRow）。前端类型以注释钉死后端契约；对账见 check-in-kiosk `docs/F12-acceptance.md` §F12-07（11/11 端点路由+openapi+字段一致，无剩余 mismatch）。
+- **embed 集成**：check-in-kiosk `scripts/embed-mobile.sh` 构建 mobile 并刷新本仓 `internal/webui/embed/mobile/`（先清旧 hash 再拷贝，幂等）。`internal/webui/webui.go` 的 `//go:embed embed` 在 `go build ./cmd/server` 时把该目录编进单二进制；`GET /m/{event_id}` 服务 SPA、`GET /m-static/` 服务 hashed assets。F12-03 用真实 captain 二进制（重建后含新 embed）跑通同 4 个 e2e spec，截图证明生产 `/m/` 路径端到端可用。
+- **F12-04 复验**：embed 刷新 + `go build` 后 `scripts/e2e.sh` 仍 `E2E OK`（embed 不破坏 Go build/API 链）。Go 代码、`scripts/e2e.sh` 均未改。
+- 本次 captain 侧仅提交 `internal/webui/embed/mobile/`（构建产物，git-tracked）+ 本 `docs/PROGRESS.md`；F2 微调 ea30120/73b4c0b 早已在分支内。
+- **push / PR / merge：PENDING USER DECISION** —— captain `feat/v2-redesign` 与 check-in-kiosk `feat/v2-mobile` 均仅本地提交，未 push、未开 PR。
+- **下一子项目**：big-screen 前端（后端 typed SSE / prize.won 已就绪），其后 admin 前端；模板引擎本期不做。
