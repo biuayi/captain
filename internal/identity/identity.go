@@ -94,6 +94,13 @@ func ParticipantKey(pepper, kind, eventID, tail string) string {
 	return Hash(pepper, []byte(kind+":"+eventID+":"+tail))
 }
 
+// CompanyNorm normalizes a company name for the whitelist unique key /
+// login match: lower-cased, trimmed; empty for single-company events
+// (must mirror the SQL expression in migration 0008, SS2-02).
+func CompanyNorm(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
 // Last4 returns the trailing 4 digits of a phone string (digits only).
 func Last4(phone string) string {
 	d := strings.Map(func(r rune) rune {

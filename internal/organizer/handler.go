@@ -19,8 +19,10 @@ import (
 	"github.com/hertz/captain/internal/realtime"
 	"github.com/hertz/captain/internal/repo"
 	"github.com/hertz/captain/internal/storage"
+	"github.com/hertz/captain/internal/templatecache"
 	"github.com/hertz/captain/internal/token"
 	"github.com/hertz/captain/internal/turnstile"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -33,6 +35,29 @@ type Handler struct {
 	BaseURL string
 	Guard   *loginguard.Guard
 	TS      *turnstile.Verifier
+	TplC    *templatecache.Cache
+	RDB     *redis.Client // participant session jti revocation on unbind (SS2-15)
+}
+
+// Templates: GET /org/templates?kind= — published templates visible to this
+// organizer (globals + own customs), short-TTL cached (SS1-07/09).
+func (h *Handler) Templates(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	kind := r.URL.Query().Get("kind")
+	if ts, hit := h.TplC.Get(r.Context(), kind, orgID); hit {
+		httpx.JSON(w, http.StatusOK, map[string]any{"templates": ts, "cached": true})
+		return
+	}
+	ts, err := h.Repo.ListTemplatesForOrganizer(r.Context(), kind, orgID)
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
+		return
+	}
+	h.TplC.Set(r.Context(), kind, orgID, ts)
+	httpx.JSON(w, http.StatusOK, map[string]any{"templates": ts})
 }
 
 type loginReq struct {
@@ -69,17 +94,19 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Guard.Reset(ctx, scope, req.LoginName)
 	tok, _ := h.Sig.Sign(token.Claims{
-		Kind: token.KindAuth, Role: "organizer", Subject: c.ID,
+		Kind: token.KindAuth, Role: token.RoleOrganizer, Subject: c.ID,
+		Perm: c.Perms(), PermVersion: c.PermVersion,
 		ExpiresAt: time.Now().Add(12 * time.Hour).Unix(),
 	})
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"token": tok, "organizer": map[string]string{"id": c.ID, "name": c.Name}})
 }
 
-// auth returns the organizer id from the bearer token.
+// auth returns the organizer id from the claims stashed by the OrgPerm
+// middleware (which already verified token, role, perm and perm_version).
 func (h *Handler) auth(w http.ResponseWriter, r *http.Request) (string, bool) {
-	c, err := h.Sig.Verify(httpx.BearerToken(r), token.KindAuth)
-	if err != nil || c.Role != "organizer" {
+	c, ok := httpx.OrgClaims(r.Context())
+	if !ok {
 		httpx.Fail(w, http.StatusUnauthorized, "unauthorized", "需要活动方登录")
 		return "", false
 	}
@@ -131,7 +158,22 @@ func (h *Handler) Participants(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusInternalServerError, "db", "query failed")
 		return
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"participants": rows, "total": len(rows)})
+	// list view masks the full phone (export keeps it; DESIGN §SS-7).
+	out := make([]map[string]any, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, map[string]any{
+			"record_id": p.ParticipationID, "name": p.Name,
+			"employee_number": p.EmployeeNumber, "company": p.Company,
+			"phone":         maskPhone(p.PhoneNumber, p.PhoneLast4),
+			"first_seen_at": p.FirstSeenAt, "checkin_at": p.CheckinAt,
+			"current_stage": p.CurrentStage, "completed_all": p.CompletedAll,
+			"lat": p.Lat, "lng": p.Lng, "accuracy": p.Accuracy,
+			"data_field_1": p.DataField1, "data_field_2": p.DataField2,
+			"status": p.Status, "form": p.Form,
+		})
+	}
+	h.orgAudit(r, orgID, "records_view", ev.ID, map[string]any{"count": len(out)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"participants": out, "total": len(out)})
 }
 
 // ---- T-021: 流程编排 / 活动 CRUD ----
@@ -210,6 +252,13 @@ func (h *Handler) parseEvent(w http.ResponseWriter, r *http.Request, orgID strin
 	}
 	if req.ScreenTemplateCode == "" {
 		req.ScreenTemplateCode = "ink-wash-default"
+	}
+	// SS1-08: enforce a registered screen template only once the registry has
+	// published screen templates for this org (permissive during bootstrap).
+	if h.Repo.AnyTemplatePublished(r.Context(), "screen", orgID) &&
+		!h.Repo.TemplateCodeAllowed(r.Context(), "screen", req.ScreenTemplateCode, orgID) {
+		httpx.Fail(w, http.StatusBadRequest, "bad_template", "screen_template_code 非可用模板")
+		return req, time.Time{}, time.Time{}, false
 	}
 	return req, st, en, true
 }
@@ -307,7 +356,10 @@ func (h *Handler) EntryLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // ImportWhitelist: POST /api/v1/org/events/{id}/whitelist/import
-// Body = CSV text with header: employee_number,name,phone (REQ-CHANGE-001).
+// CSV with a variable header: employee_number,phone_last4[,name][,phone]
+// [,company] (D2/SS2-03). Query flags require_name/require_phone/
+// multi_company set the event identity factors and are validated against the
+// provided columns (SS2-04). phone_last4 may be derived from full phone.
 func (h *Handler) ImportWhitelist(w http.ResponseWriter, r *http.Request) {
 	orgID, ok := h.auth(w, r)
 	if !ok {
@@ -318,29 +370,73 @@ func (h *Handler) ImportWhitelist(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusNotFound, "not_found", "活动不存在")
 		return
 	}
+	q := r.URL.Query()
+	reqName := q.Get("require_name") == "true"
+	reqPhone := q.Get("require_phone") == "true"
+	multiCompany := q.Get("multi_company") == "true"
+
 	defer r.Body.Close()
-	cr := csv.NewReader(io.LimitReader(r.Body, 4<<20))
+	cr := csv.NewReader(io.LimitReader(r.Body, 8<<20))
 	cr.FieldsPerRecord = -1
 	recs, err := cr.ReadAll()
 	if err != nil || len(recs) < 2 {
-		httpx.Fail(w, http.StatusBadRequest, "bad_csv", "CSV 需含表头 employee_number,name,phone 且至少一行数据")
+		httpx.Fail(w, http.StatusBadRequest, "bad_csv", "CSV 需含表头与至少一行数据")
 		return
+	}
+	col := map[string]int{}
+	for i, h := range recs[0] {
+		col[strings.ToLower(strings.TrimSpace(h))] = i
+	}
+	if _, ok := col["employee_number"]; !ok {
+		httpx.Fail(w, http.StatusBadRequest, "bad_csv", "缺少 employee_number 列")
+		return
+	}
+	_, hasLast4 := col["phone_last4"]
+	_, hasPhone := col["phone"]
+	if !hasLast4 && !hasPhone {
+		httpx.Fail(w, http.StatusBadRequest, "bad_csv", "需 phone_last4 或 phone 列")
+		return
+	}
+	if _, ok := col["name"]; reqName && !ok {
+		httpx.Fail(w, http.StatusBadRequest, "col_flag_mismatch", "勾选姓名校验但缺少 name 列")
+		return
+	}
+	if reqPhone && !hasPhone {
+		httpx.Fail(w, http.StatusBadRequest, "col_flag_mismatch", "勾选手机号校验但缺少 phone 列")
+		return
+	}
+	if _, ok := col["company"]; multiCompany && !ok {
+		httpx.Fail(w, http.StatusBadRequest, "col_flag_mismatch", "多企业但缺少 company 列")
+		return
+	}
+	get := func(rec []string, name string) string {
+		if i, ok := col[name]; ok && i < len(rec) {
+			return strings.TrimSpace(rec[i])
+		}
+		return ""
 	}
 	var rows []repo.WLImportRow
 	for _, rec := range recs[1:] {
-		if len(rec) < 3 {
+		emp := get(rec, "employee_number")
+		if emp == "" {
 			continue
 		}
-		emp := strings.TrimSpace(rec[0])
-		name := strings.TrimSpace(rec[1])
-		phone := strings.TrimSpace(rec[2])
-		if emp == "" || name == "" || phone == "" {
-			continue
+		phone := get(rec, "phone")
+		last4 := get(rec, "phone_last4")
+		if last4 == "" && phone != "" {
+			last4 = identity.Last4(phone)
+		}
+		if len(last4) != 4 {
+			continue // phone_last4 required (D2)
 		}
 		rows = append(rows, repo.WLImportRow{
-			EmployeeNumber: emp, Name: name, Phone: phone,
-			PhoneLast4: identity.Last4(phone),
+			EmployeeNumber: emp, Name: get(rec, "name"), Phone: phone,
+			PhoneLast4: last4, Company: get(rec, "company"),
 		})
+	}
+	if err := h.Repo.SetEventIdentityFlags(r.Context(), ev.ID, orgID, reqName, reqPhone, multiCompany); err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "db", "写入身份配置失败")
+		return
 	}
 	batch := fmt.Sprintf("imp-%d", time.Now().Unix())
 	n, err := h.Repo.InsertWhitelist(r.Context(), ev.ID, orgID, batch, rows)
@@ -349,7 +445,35 @@ func (h *Handler) ImportWhitelist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
-		"parsed": len(rows), "inserted": n, "batch": batch})
+		"parsed": len(rows), "inserted": n, "batch": batch,
+		"flags": map[string]bool{"require_name": reqName, "require_phone": reqPhone, "multi_company": multiCompany}})
+}
+
+// UnbindWhitelist: POST /api/v1/org/events/{id}/whitelist/{entry_id}/unbind
+// — release device binding so the user can re-login on a new device; old
+// session jti revoked; audited (SS2-15).
+func (h *Handler) UnbindWhitelist(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.auth(w, r)
+	if !ok {
+		return
+	}
+	ev, err := h.Repo.Event(r.Context(), r.PathValue("id"))
+	if err != nil || ev.OrganizerID != orgID {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "活动不存在")
+		return
+	}
+	entryID := r.PathValue("entry_id")
+	oldJTI, err := h.Repo.UnbindWhitelist(r.Context(), entryID, orgID)
+	if err != nil {
+		httpx.Fail(w, http.StatusNotFound, "not_found", "名单条目不存在")
+		return
+	}
+	if h.RDB != nil && oldJTI != "" {
+		h.RDB.Set(r.Context(), "sess:p:"+oldJTI, "1", 12*time.Hour)
+	}
+	_ = h.Repo.AddWarning(r.Context(), nil, ev.ID, "device_unbind",
+		map[string]any{"entry_id": entryID, "by": orgID})
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": "unbound"})
 }
 
 // ListWhitelist: GET /api/v1/org/events/{id}/whitelist

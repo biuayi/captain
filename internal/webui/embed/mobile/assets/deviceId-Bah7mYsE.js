@@ -1,0 +1,1 @@
+const r="cap.device";function n(){return typeof crypto<"u"&&crypto.randomUUID?crypto.randomUUID():"dev-"+Math.random().toString(36).slice(2)+Date.now().toString(36)}function o(){try{const t=localStorage.getItem(r);if(t)return t;const e=n();return localStorage.setItem(r,e),e}catch{return n()}}export{o as d};

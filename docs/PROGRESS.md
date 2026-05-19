@@ -1,67 +1,60 @@
-# 协作进度看板 — 活动互动平台（仅活跃任务）
+# 进度看板 — captain 服务端 v2 重做
 
-> 跨设备 / 多 AI Agent 单一同步点。**完成的任务移入 `docs/HISTORY.md`，此处只留活跃/待办。**
-> 两仓库镜像，**canonical = check-in-kiosk**，captain 镜像；改后同提交同步两份。
+> 单一权威设计 = [`docs/DESIGN.md`](DESIGN.md)。任务索引/勾选 = [`docs/superpowers/plans/2026-05-19-captain-v2-roadmap.md`](superpowers/plans/2026-05-19-captain-v2-roadmap.md)。
+> 自主执行中：subagent/直接 TDD，逐任务 commit，状态以 git + 路线图勾选为准（跨上下文可续）。
+> 续点 = 路线图中第一个 `- [ ]` 未勾选项。基础设施：`scripts/testdb.sh up`（pg/redis/nats）。
 
-## 0. 协作约定（必读）
+## 阶段状态
 
-1. 开工前 `git pull --rebase`；认领任务填 `负责 Agent` + 置 `DOING` + 更新最后更新。
-2. 状态：`TODO → DOING → BLOCKED → REVIEW → DONE`。完成即满足验收标准，移入 HISTORY 并在 §4 记一行。
-3. 提交遵循 `docs/GIT_CONVENTION.md`（§0 强制：每阶段性完成必须 commit+push）。
-4. 不抢占他人 24h 内 `DOING` 任务；中途发现新需求记本文件 §3 或新建 `docs/REQ-CHANGE-00X-*.md`。
-5. 每阶段完成后回看本文件。重大设计与 codex 头脑风暴，结论回填文档。
-
-## 1. 当前快照（Snapshot，2026-05-16，据实）
-
-| 项 | 值 |
+| 阶段 | 状态 |
 |---|---|
-| 后端 captain | **M1/M2 核心 + REQ-CHANGE-001 完成并验证**（build/test/30k压测/身份矩阵全绿，已推 GitHub `c088026`） |
-| 前端 check-in-kiosk | **React 三端已接为正式对外 UI 并公网验证**（mobile/admin 经隧道 200；big-screen=codex 定稿+扫码二维码，已去页眉）。剩浏览器细节回归 |
-| 正式 URL | **硬化已完成（可安全暴露）**；仅差 cloudflared 二进制：用户装/放行后我一条命令出公网 URL。见 §B-URL |
-| 安全硬化 | ✅ 强密钥/强口令/管理URL混淆(T-083) 完成验证（→HISTORY） |
-| 大屏 | ✅ 改版：广东省游心公益基金会 + 爱心跳动/亮度进度（logo 待活动方提供 /assets/youxin-logo.png） |
-| 活跃 Agent | `Claude(Opus4.7)@check-in-kiosk-session`（后端+协调）；协作 Agent 见 CODEX-REVIEW-001 泳道 |
+| 探查/设计/路线图 | DONE（74aa371..47c03d7） |
+| P0 跨切面基座（16） | DONE（token/cryptobox/config/httpx-reqid/orgperm/authz/迁移0006/audit/platformcfg/testdb；build·vet·test ./... 全绿，真库验证） |
+| **SS-0 平台基座（19）** | **DONE**（账号/权限+版本/软删/改密/加密配置/审计/DB导出/迁移0006·0006b；admin 集成测试+真库全绿） |
+| SS-1 模板（10） | DONE（迁移0007/storage SignedURL/admin模板CRUD+资源/org可见性+缓存；真库全绿） |
+| SS-2 身份与登录（17） | DONE（迁移0008/因子登录/顶号/解绑/D3严格/legacy门控；登录流集成测试真库全绿） |
+| SS-3 编排（15） | DONE（flow v2/exam/多奖池配置/event config；repo+迁移+flow 测试真库全绿） |
+| SS-4 运行时 R1/R2/R3（15） | DONE（迁移0011/JWT提交/D5门禁/R1多日/R2上传/R3计分/漏斗；运行时集成测试真库全绿） |
+| SS-5 抽奖多奖池（14） | DONE（lottery算法/原子抽奖/幂等/内定/审计导出；并发不超卖测试真库全绿） |
+| SS-6 大屏（7） | DONE（typed信封/OnParticipated/prize.won消费/winner滚动；真库全绿） |
+| SS-7 记录与导出（11） | DONE |
+| PF 集成/E2E/收尾（6） | DONE（租户隔离/并发竞争/门控文档/openapi/smoke；build·vet·test ./... 全绿真库） |
 
-## 2. 里程碑
+## 续做说明
 
-| | 目标 | 状态 |
-|---|---|---|
-| M0 | 需求/架构/规范 | **DONE**（→HISTORY） |
-| M1 | 后端脚手架+迁移 / 前端 monorepo 脚手架 | 后端 DONE；前端 **TODO** |
-| M2 | 后端核心(鉴权/参与/实时/导出/超管)+REQ-CHANGE-001 | **DONE**；剩 T-021/T-026 |
-| M3 | 前端三端(流程引擎/mobile/big-screen/admin) | **TODO（最大块）** |
-| M4 | 端到端联调 + OpenAPI 契约 | e2e DONE(smoke)；OpenAPI TODO |
-| M5 | 部署/环境/CI + TLS + 正式URL | **TODO** |
+- 验收基线每阶段尾跑 `go build ./... && go vet ./... && go test ./...`（含 docker pg/redis/nats）。
+- DB 测试用 `internal/testdb`，无基础设施时 `t.Skip` 保持离线绿。
+- 决策记 DESIGN §6；无法决策项与 codex 读原始需求后定（暂无）。
 
-## 3. 活跃任务（TODO/DOING）
+## 审查后修复（2026-05-19，对照原始需求+DESIGN 的缺口审计）
 
-### 后端剩余
-- **T-021** 活动 CRUD + 流程编排 API（现仅种子建活动；需创建/编辑活动、流程 schema 校验入库、租户隔离）。验收：活动方可建/改活动并选模板+编排流程，schema 校验，仅本租户。状态 TODO。
-- **T-026** 超管 OSS/CDN 资源管理（现 storage 为本地FS；需阿里云OSS驱动+资源 上传/列表/删除接口）。验收：上传/列表/删除→OSS，返回CDN URL，仅超管。状态 TODO。
-- **T-041** OpenAPI 契约（产出 openapi.yaml，前端据此生成 client；含 REQ-CHANGE-001 字段）。状态 TODO。
+- S1 /dl 无鉴权 → 改 HMAC 签名+过期校验（commit）
+- S2 上传文件名 → storage.SafeName 净化（commit）
+- G1 seed 仍 v1 → 升级为 v2 R1-R4+exam+多奖池 demo（commit）
+- G2 device_id 永空 → submit 采集落库（commit）
+- G4 -race 并发回归全绿；20k 压测登记为门控手动步（INTEGRATION-GATED）
+- 注释漂移：修正参与包/主程序误导性注释；REQ-CHANGE/§N 历史引用作 provenance 保留
+- 残余/范围（不修，已登记）：G3 阿里云CDN/SMS 槽位（无功能消费）、G5 smoke=套件、G6 前端 deferred、G7 每日geo未聚合、S3 Redis宕fail-open（DESIGN既定取舍）、S4 弱默认密钥仅告警（部署强制）
+- 复验：go build/vet/test ./... 全绿（14 包，真库）
 
-### REQ-CHANGE-002（安全/位置，见 docs/REQ-CHANGE-002-*.md，用户"先记后做"）
-- **T-080** 签到记录用户位置（前端 geolocation + 提交字段 + 落库 + 导出列；需小迁移）。状态 TODO。
-- **T-081** 上线前 TLS/HTTPS 强制 + 凭据安全复查（部署，M5）。状态 TODO。
-- **T-082** 凭据字段名/值混淆（登录与 token，配置化，契约同步）。状态 TODO。
-- **T-083** 管理员后台 URL/路径混淆（env slug，未知路径统一404）。状态 TODO。
+## 残余项补强（2026-05-19，第二轮）
 
-### 前端 M3（脚手架+构建完成；待浏览器 e2e）
-- **T-011/T-030 DONE**（→HISTORY）：monorepo + shared(类型/API client/指纹)，npm install+typecheck+build 全绿。
-- **T-031** mobile（扫码→流程引擎6类step→staff/external+指纹+位置）：已实现+build绿。**状态 REVIEW**（待跑 `npm run dev:mobile` 连后端浏览器联调）。
-- **T-032** big-screen（SSE实时人数+爱心值rAF）：已实现+build绿。**REVIEW**（待浏览器联调）。
-- **T-033/T-034** admin 活动方+超管控制台：已实现+build绿。**REVIEW**（待浏览器联调）。
-- **T-040b** 前端↔后端浏览器端到端联调（vite dev 代理连 captain，跑通扫码→流程→大屏→后台→导出→白名单）。TODO。
+- S4 → CAPTAIN_ENV=prod 拒弱/缺密钥启动（dev 仅告警，行为不变）
+- S3 → loginguard 进程内回退计数（Redis 宕仍限暴破）+ CAPTAIN_LOGIN_FAILCLOSED 可选 fail-closed
+- G3 → 阿里云 CDN/SMS 配置槽位补齐（超管可加密设置；无 in-flow 消费，文档登记）
+- G7 → 记录/导出位置改取 checkin_day 每日 geo（COALESCE 覆盖，v2 位置不再空）
+- G5 → scripts/e2e.sh 真 cmd/server 全链 e2e，**实跑通过**；smoke.sh 串联
+- 复验：go build/vet/test ./... 全绿（15 包，真库）；e2e 活服务绿
+- 仅剩范围说明 G6（前端 deferred，需 check-in-kiosk）——非后端缺陷
 
-## 4. 阻塞 / 变更日志（最新在上）
+## mobile v2 前端完成 + embed 集成（2026-05-19，闭合 G6）
 
-**B-URL（RESOLVED）**：用户自行 `cloudflared tunnel` 跑通，公网 `https://authority-writing-beach-reid.trycloudflare.com`（隧道在用户前台 shell；trycloudflare 临时、关窗即失效，长期需 named tunnel）。
-**B-LOGO（RESOLVED）**：用户提供 `https://youxin.37.com/css/images/logo.png`，已下载内嵌 `captain/internal/webui/assets/youxin-logo.png`，大屏+mobile 已用。
-**B-TS（OPEN，需用户提供）**：Cloudflare Turnstile **sitekey + secret**（用户 Cloudflare 控制台获取）。前后端集成已完成且默认 `off`（惰性无回归）；用户提供后设 `deploy/.env`：`CAPTAIN_TURNSTILE_MODE=enforce`/`CAPTAIN_TURNSTILE_SITEKEY=`/`CAPTAIN_TURNSTILE_SECRET=` 即激活；服务端 siteverify 需容器出网（届时配 `HTTPS_PROXY=宿主代理` 同 docker 守护进程方案）。
+配套前端仓库 `check-in-kiosk`（分支 `feat/v2-mobile`）的 **mobile v2 参与者端 F0–F12 全部完成**，G6（前端 deferred）就此闭合。
 
-- `2026-05-17 | Claude@check-in-kiosk-session | 大批次 | React三端=正式UI(隧道验证)；codex隔离重设计大屏(去大爱心)+扫码二维码+去页眉；登录3s/10次锁定;Turnstile服务端+前端挂件(默认off);mobile游心logo。captain 1566e55/kiosk 183f766。**B-TS**:Turnstile 待用户给 sitekey/secret 才激活`
-- `2026-05-17 | Claude@check-in-kiosk-session | 硬化+大屏 | T-083强口令/密钥/管理URL混淆完成验证(→HISTORY)；大屏改版游心公益基金会+爱心跳动/亮度进度+/info；captain 10fd961 / kiosk c16ddca。待用户：cloudflared 二进制(B-URL)、游心logo(B-LOGO)`
-- `2026-05-16 | Claude@check-in-kiosk-session | 前端 | monorepo 三端+shared 实现并构建验证(typecheck净/vite build全绿)，push 16e6f67；T-011/030→HISTORY，T-031~034 REVIEW(待浏览器e2e)；隧道仍待用户放行+先硬化`
-- `2026-05-16 | Claude@check-in-kiosk-session | 流程重构 | 引入 HISTORY.md，PROGRESS 瘦身为仅活跃；REQ-CHANGE-002 记档(位置/凭据非明文/字段+URL混淆)；M1~M4 据实校准（前端未开工，后端+REQ-CHANGE-001 完成）`
-- `2026-05-16 | Claude@check-in-kiosk-session | REQ-CHANGE-001 | T-071/072 完成并容器验证，commit c088026；B-3 → resolved-in-code（文档并入 REQUIREMENTS/ARCHITECTURE 仍待 Agent-B T-074）`
-- 早期条目见 `docs/HISTORY.md`。
+- **前端门禁全绿（实跑）**：typecheck 净；vite build 产 dist（~67.6 KB gzip，0 sourcemap）；vitest **42 files / 445 tests**；F11 e2e（vite-preview）**4/4**；F12-03 内嵌 e2e **4/4**；详见 check-in-kiosk `docs/F12-acceptance.md`。
+- **F8/F9/F10/F11 shared-vs-backend 契约修复（前端侧对齐冻结后端，后端 Go 未改）**：`LandingResp.identity?`（对齐 F2-01 ea30120 微调）；`StepState` 无 `completed`/`data`，`days_done` 顶层（对齐 `runtime.go` StepGet）；`DrawResult` 扁平形（`resolved_by`/`prize_level`/`repeat`，对齐 Draw/DrawResult）；`LoginReq` 故意不发 `fingerprint`（字符串会硬挂 Go JSON decode）；`Warning` 无 `id`（对齐 repo WarningRow）。前端类型以注释钉死后端契约；对账见 check-in-kiosk `docs/F12-acceptance.md` §F12-07（11/11 端点路由+openapi+字段一致，无剩余 mismatch）。
+- **embed 集成**：check-in-kiosk `scripts/embed-mobile.sh` 构建 mobile 并刷新本仓 `internal/webui/embed/mobile/`（先清旧 hash 再拷贝，幂等）。`internal/webui/webui.go` 的 `//go:embed embed` 在 `go build ./cmd/server` 时把该目录编进单二进制；`GET /m/{event_id}` 服务 SPA、`GET /m-static/` 服务 hashed assets。F12-03 用真实 captain 二进制（重建后含新 embed）跑通同 4 个 e2e spec，截图证明生产 `/m/` 路径端到端可用。
+- **F12-04 复验**：embed 刷新 + `go build` 后 `scripts/e2e.sh` 仍 `E2E OK`（embed 不破坏 Go build/API 链）。Go 代码、`scripts/e2e.sh` 均未改。
+- 本次 captain 侧仅提交 `internal/webui/embed/mobile/`（构建产物，git-tracked）+ 本 `docs/PROGRESS.md`；F2 微调 ea30120/73b4c0b 早已在分支内。
+- **push / PR / merge：PENDING USER DECISION** —— captain `feat/v2-redesign` 与 check-in-kiosk `feat/v2-mobile` 均仅本地提交，未 push、未开 PR。
+- **下一子项目**：big-screen 前端（后端 typed SSE / prize.won 已就绪），其后 admin 前端；模板引擎本期不做。

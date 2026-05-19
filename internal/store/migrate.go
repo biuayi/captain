@@ -14,7 +14,22 @@ var migrationFS embed.FS
 
 // Migrate applies every embedded migrations/*.sql file once, in lexical order,
 // tracked in schema_migrations. Each file runs in a single transaction.
+// migrateLockKey is an arbitrary fixed advisory-lock id so concurrent
+// Migrate callers (parallel test packages, multi-instance startup) serialize
+// instead of racing on the same database.
+const migrateLockKey = 0x6361707461696e01
+
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire for migrate lock: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, int64(migrateLockKey)); err != nil {
+		return fmt.Errorf("migrate advisory lock: %w", err)
+	}
+	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(migrateLockKey))
+
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version text PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
