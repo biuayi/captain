@@ -22,7 +22,7 @@ CAPTAIN_TEST_REDIS_ADDR="localhost:6379" \
 CAPTAIN_TEST_NATS_URL="nats://localhost:4222" \
   go test ./... -count=1
 
-echo "== healthz (if a server is running on :8080) =="
-curl -fsS http://localhost:8080/healthz 2>/dev/null && echo " ok" || echo " (server not running — skipped)"
+echo "== live full-chain e2e (real cmd/server) =="
+scripts/e2e.sh
 
 echo "SMOKE OK"
