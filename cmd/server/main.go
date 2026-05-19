@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -47,6 +48,22 @@ func run() error {
 	}
 	if cfg.IdentityPepper == "dev-only-insecure-pepper-change-me" {
 		log.Printf("WARNING: CAPTAIN_IDENTITY_PEPPER is the insecure default — set a strong pepper before any non-dev use")
+	}
+	// S4: prod refuses to start with weak/missing secrets (dev/staging warn only).
+	if cfg.Env == "prod" {
+		var bad []string
+		if cfg.TokenSecret == "dev-only-insecure-secret-change-me" || len(cfg.TokenSecret) < 16 {
+			bad = append(bad, "CAPTAIN_TOKEN_SECRET")
+		}
+		if cfg.IdentityPepper == "dev-only-insecure-pepper-change-me" || len(cfg.IdentityPepper) < 16 {
+			bad = append(bad, "CAPTAIN_IDENTITY_PEPPER")
+		}
+		if cfg.ConfigKey == "" {
+			bad = append(bad, "CAPTAIN_CONFIG_KEY")
+		}
+		if len(bad) > 0 {
+			return fmt.Errorf("CAPTAIN_ENV=prod refuses insecure/missing secrets: %v", bad)
+		}
 	}
 
 	rootCtx, stop := signal.NotifyContext(context.Background(),

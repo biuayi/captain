@@ -27,6 +27,8 @@ type Config struct {
 	OSSKeyID          string
 	OSSKeySecret      string
 	ConfigKey         string // CAPTAIN_CONFIG_KEY: 32B AES-256-GCM key for platform_config secrets (prod required)
+	Env               string // CAPTAIN_ENV: dev | staging | prod (prod refuses weak default secrets, S4)
+	LoginFailClosed   bool   // CAPTAIN_LOGIN_FAILCLOSED: deny login when Redis down (S3, default false)
 	OpenParticipation bool   // CAPTAIN_OPEN_PARTICIPATION: legacy anon/external path, default off (DESIGN §SS-2)
 	Seed              bool
 }
@@ -73,6 +75,8 @@ func Load() Config {
 		OSSKeyID:          env("CAPTAIN_OSS_KEY_ID", ""),
 		OSSKeySecret:      env("CAPTAIN_OSS_KEY_SECRET", ""),
 		ConfigKey:         env("CAPTAIN_CONFIG_KEY", ""),
+		Env:               env("CAPTAIN_ENV", "dev"),
+		LoginFailClosed:   envBool("CAPTAIN_LOGIN_FAILCLOSED", false),
 		OpenParticipation: envBool("CAPTAIN_OPEN_PARTICIPATION", false),
 		Seed:              envBool("CAPTAIN_SEED", true),
 	}
