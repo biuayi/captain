@@ -1,6 +1,7 @@
-// Package seed bootstraps a demo super-admin, the 《寻道大千》organizer and
-// its anniversary event so `docker compose up` shows a real themed flow
-// (REQUIREMENTS §11.5). No-op once an organizer already exists.
+// Package seed bootstraps a working v2 demo (super-admin + organizer + an
+// active event with the full R1-R4 flow, whitelist for strong-identity
+// login, an exam question and a lottery pool/prize) so `docker compose up`
+// is immediately exercisable. No-op once an organizer exists (G1/SS0-18).
 package seed
 
 import (
@@ -13,36 +14,24 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// 《寻道大千》周年庆 themed linear flow (ARCHITECTURE §4, 6 step types).
-const xundaoFlow = `{
-  "version": 1,
-  "flowId": "xundao-anniversary-v1",
-  "name": "寻道大千 · 周年庆典",
-  "entryStepId": "s1",
+// v2 demo flow: R1 单日签到 → R2 问卷(文本+图片) → R3 考试 → R4 抽奖.
+const demoFlow = `{
+  "version": 2,
+  "flowId": "demo-v2",
+  "name": "示例活动 · 内部员工",
+  "entryStepId": "r1",
   "steps": [
-    { "id": "s1", "type": "checkin", "title": "踏入大千 · 签到", "required": true, "skippable": false, "nextStepId": "s2",
-      "config": { "countTowardAttendance": true, "dedupeMode": "participant_key", "buttonText": "结缘签到",
-        "theme": { "palette": "ink-wash", "mascot": "猪妖/鸟妖/鱼妖" },
-        "subtitle": "前世道则大能，今世小妖重修——周年庆典，恭迎道友归山" } },
-    { "id": "s2", "type": "form", "title": "道友名册", "required": true, "skippable": false, "nextStepId": "s3",
-      "config": { "fields": [
-        { "id": "name", "type": "text", "label": "道号/姓名", "required": true, "placeholder": "请输入" },
-        { "id": "employee_no", "type": "text", "label": "工号（内部员工填）", "required": false, "placeholder": "选填" },
-        { "id": "phone", "type": "phone", "label": "手机号", "required": false, "placeholder": "选填，用于领取礼遇" }
+    { "id": "r1", "type": "checkin", "stage": "R1", "title": "每日签到", "required": true,
+      "nextStepId": "r2", "config": { "days": 1, "countTowardAttendance": true } },
+    { "id": "r2", "type": "form", "stage": "R2", "title": "调查问卷", "required": true,
+      "nextStepId": "r3", "config": { "fields": [
+        { "id": "opinion", "type": "textarea", "label": "您的建议", "required": false },
+        { "id": "photo_image", "type": "image", "label": "现场照片", "required": false }
       ]}},
-    { "id": "s3", "type": "game", "title": "试炼 · 大千问道", "required": true, "skippable": false, "nextStepId": "s4",
-      "config": { "gameType": "quiz_single_choice", "attemptLimit": 1,
-        "question": "《寻道大千》中，玩家以何种身份重入修行？",
-        "options": ["人间剑客", "小妖之躯", "天庭仙官", "山中隐士"],
-        "correctOptionIndex": 1 } },
-    { "id": "s4", "type": "charity", "title": "仙道同行 · 公益", "required": true, "skippable": false, "nextStepId": "s5",
-      "config": { "title": "以善入道 · 公益同行",
-        "body": "周年庆典之际，《寻道大千》联动公益：你的每一次参与，平台将以道友之名捐出一份善意，护山林、助学子。",
-        "ctaText": "我愿同行", "pledgeField": "pledge" } },
-    { "id": "s5", "type": "reward", "title": "周年庆礼遇", "required": true, "skippable": false, "nextStepId": null,
-      "config": { "title": "道友礼遇 · 周年同庆",
-        "body": "感谢同行！凭兑换码于游戏内「大千阁」领取周年专属灵宠与法宝。",
-        "redeemCode": "XDDQ-ANNIV-2026", "redeemNote": "游戏内 设置→兑换码 输入，活动结束后 7 日内有效" } }
+    { "id": "r3", "type": "exam", "stage": "R3", "title": "在线考试", "required": true,
+      "nextStepId": "r4", "config": { "mode": "all", "passScore": 1, "attemptLimit": 3 } },
+    { "id": "r4", "type": "lottery", "stage": "R4", "title": "在线抽奖", "required": true,
+      "nextStepId": null, "config": { "drawLimit": 1, "grandPushToScreen": true } }
   ]
 }`
 
@@ -67,7 +56,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL, ad
 	var orgID string
 	if err := pool.QueryRow(ctx,
 		`INSERT INTO organizer (name, login_name, password_hash)
-		 VALUES ('寻道大千','xundao',$1) RETURNING id`,
+		 VALUES ('示例企业','demo',$1) RETURNING id`,
 		string(orgPw)).Scan(&orgID); err != nil {
 		return err
 	}
@@ -75,8 +64,8 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL, ad
 	var flowID string
 	if err := pool.QueryRow(ctx,
 		`INSERT INTO flow_config (organizer_id, name, schema_json)
-		 VALUES ($1,'寻道大千 · 周年庆典',$2::jsonb) RETURNING id`,
-		orgID, xundaoFlow).Scan(&flowID); err != nil {
+		 VALUES ($1,'示例活动 v2',$2::jsonb) RETURNING id`,
+		orgID, demoFlow).Scan(&flowID); err != nil {
 		return err
 	}
 
@@ -86,23 +75,23 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer, baseURL, ad
 	if err := pool.QueryRow(ctx,
 		`INSERT INTO event (organizer_id, name, status, start_at, end_at,
 		        expected_count, screen_template_code, flow_config_id)
-		 VALUES ($1,'寻道大千 · 周年庆典','active',$2,$3,5000,'ink-wash-default',$4)
+		 VALUES ($1,'示例活动 · 周年庆','active',$2,$3,5000,'ink-wash-default',$4)
 		 RETURNING id`,
 		orgID, start, end, flowID).Scan(&eventID); err != nil {
 		return err
 	}
 
-	// REQ-CHANGE-001: sample staff whitelist for the demo event so the
-	// staff-identity path testable out of the box; external stays open.
 	seedWhitelist(ctx, pool, eventID, orgID)
+	seedExam(ctx, pool, eventID)
+	seedLottery(ctx, pool, eventID)
 
-	log.Printf("seed: demo data created — admin/%s  xundao/%s  (白名单 E1001/E1002/E1003)",
+	log.Printf("seed: v2 demo — admin/%s  demo/%s  登录(白名单 E1001/E1002/E1003 手机后4位 1234/5678/9012)",
 		adminPwPlain, orgPwPlain)
 	return logEvent(sig, baseURL, eventID, end)
 }
 
-// seedWhitelist idempotently ensures the demo staff whitelist exists
-// (REQ-CHANGE-001 §3.4). Safe to call on every boot.
+// seedWhitelist idempotently ensures the demo login whitelist exists.
+// Conflict target = the v2 unique key (event_id, company_norm, employee_number).
 func seedWhitelist(ctx context.Context, pool *pgxpool.Pool, eventID, orgID string) {
 	staff := [][3]string{
 		{"E1001", "张三", "+8613800001234"},
@@ -115,10 +104,41 @@ func seedWhitelist(ctx context.Context, pool *pgxpool.Pool, eventID, orgID strin
 			`INSERT INTO event_whitelist_entry
 			   (event_id, organizer_id, employee_number, name, phone_number, phone_last4, import_batch_id)
 			 VALUES ($1,$2,$3,$4,$5,$6,'seed')
-			 ON CONFLICT (event_id, employee_number) DO NOTHING`,
+			 ON CONFLICT (event_id, (lower(btrim(coalesce(company,'')))), employee_number)
+			 DO NOTHING`,
 			eventID, orgID, s[0], s[1], s[2], last4); err != nil {
 			log.Printf("seed: whitelist %s: %v", s[0], err)
 		}
+	}
+}
+
+func seedExam(ctx context.Context, pool *pgxpool.Pool, eventID string) {
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO exam_question (event_id, step_id, idx, stem, options, correct, score, multi)
+		 SELECT $1,'r3',0,'本公司成立于哪一年？',
+		        '["2010","2015","2020"]'::jsonb,'[1]'::jsonb,5,false
+		 WHERE NOT EXISTS (SELECT 1 FROM exam_question WHERE event_id=$1 AND step_id='r3')`,
+		eventID); err != nil {
+		log.Printf("seed: exam: %v", err)
+	}
+}
+
+func seedLottery(ctx context.Context, pool *pgxpool.Pool, eventID string) {
+	var poolID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO lottery_pool (event_id, step_id, code, name, is_default)
+		 VALUES ($1,'r4','default','默认奖池',true)
+		 ON CONFLICT (event_id, step_id, code) DO UPDATE SET name=EXCLUDED.name
+		 RETURNING id`, eventID).Scan(&poolID); err != nil {
+		log.Printf("seed: lottery pool: %v", err)
+		return
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO lottery_prize (event_id, step_id, pool_id, code, name, level, stock, weight)
+		 VALUES ($1,'r4',$2,'prize1','纪念奖','normal',1000,1)
+		 ON CONFLICT (event_id, step_id, code) DO NOTHING`,
+		eventID, poolID); err != nil {
+		log.Printf("seed: lottery prize: %v", err)
 	}
 }
 
@@ -129,9 +149,8 @@ func logExistingEvent(ctx context.Context, pool *pgxpool.Pool, sig *token.Signer
 		`SELECT id, organizer_id, end_at FROM event ORDER BY created_at ASC LIMIT 1`,
 	).Scan(&id, &orgID, &end)
 	if err != nil {
-		return nil // nothing to log
+		return nil
 	}
-	seedWhitelist(ctx, pool, id, orgID) // backfill whitelist for pre-existing demo
 	return logEvent(sig, baseURL, id, end)
 }
 
@@ -144,7 +163,7 @@ func logEvent(sig *token.Signer, baseURL, eventID string, end time.Time) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("seed: 寻道大千周年庆 event_id=%s", eventID)
+	log.Printf("seed: 示例活动 v2 event_id=%s", eventID)
 	log.Printf("seed: 用户侧(扫码) %s/m/%s?et=%s", baseURL, eventID, et)
 	log.Printf("seed: 大屏       %s/screen/%s", baseURL, eventID)
 	log.Printf("seed: event_token=%s", et)
