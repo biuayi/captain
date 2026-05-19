@@ -36,3 +36,13 @@
 - 注释漂移：修正参与包/主程序误导性注释；REQ-CHANGE/§N 历史引用作 provenance 保留
 - 残余/范围（不修，已登记）：G3 阿里云CDN/SMS 槽位（无功能消费）、G5 smoke=套件、G6 前端 deferred、G7 每日geo未聚合、S3 Redis宕fail-open（DESIGN既定取舍）、S4 弱默认密钥仅告警（部署强制）
 - 复验：go build/vet/test ./... 全绿（14 包，真库）
+
+## 残余项补强（2026-05-19，第二轮）
+
+- S4 → CAPTAIN_ENV=prod 拒弱/缺密钥启动（dev 仅告警，行为不变）
+- S3 → loginguard 进程内回退计数（Redis 宕仍限暴破）+ CAPTAIN_LOGIN_FAILCLOSED 可选 fail-closed
+- G3 → 阿里云 CDN/SMS 配置槽位补齐（超管可加密设置；无 in-flow 消费，文档登记）
+- G7 → 记录/导出位置改取 checkin_day 每日 geo（COALESCE 覆盖，v2 位置不再空）
+- G5 → scripts/e2e.sh 真 cmd/server 全链 e2e，**实跑通过**；smoke.sh 串联
+- 复验：go build/vet/test ./... 全绿（15 包，真库）；e2e 活服务绿
+- 仅剩范围说明 G6（前端 deferred，需 check-in-kiosk）——非后端缺陷
