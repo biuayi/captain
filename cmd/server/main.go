@@ -1,6 +1,6 @@
 // Command server is the captain modular monolith entrypoint: it wires
 // config -> stores -> modules -> HTTP and runs background workers
-// (realtime fan-out, export consumer). See docs/ARCHITECTURE.md.
+// (realtime fan-out, export consumer). See docs/DESIGN.md.
 package main
 
 import (
@@ -133,7 +133,7 @@ func run() error {
 		w.Write([]byte("ok"))
 	})
 
-	// participation (anonymous, ARCHITECTURE §2)
+	// participation (user side: landing public; login/submit participant JWT — DESIGN §SS-2/§SS-4)
 	mux.HandleFunc("GET /api/v1/p/e/{event_id}", pa.Bootstrap)
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/login", pa.Login)
 	mux.HandleFunc("POST /api/v1/p/e/{event_id}/logout", pa.Logout)

@@ -25,3 +25,14 @@
 - 验收基线每阶段尾跑 `go build ./... && go vet ./... && go test ./...`（含 docker pg/redis/nats）。
 - DB 测试用 `internal/testdb`，无基础设施时 `t.Skip` 保持离线绿。
 - 决策记 DESIGN §6；无法决策项与 codex 读原始需求后定（暂无）。
+
+## 审查后修复（2026-05-19，对照原始需求+DESIGN 的缺口审计）
+
+- S1 /dl 无鉴权 → 改 HMAC 签名+过期校验（commit）
+- S2 上传文件名 → storage.SafeName 净化（commit）
+- G1 seed 仍 v1 → 升级为 v2 R1-R4+exam+多奖池 demo（commit）
+- G2 device_id 永空 → submit 采集落库（commit）
+- G4 -race 并发回归全绿；20k 压测登记为门控手动步（INTEGRATION-GATED）
+- 注释漂移：修正参与包/主程序误导性注释；REQ-CHANGE/§N 历史引用作 provenance 保留
+- 残余/范围（不修，已登记）：G3 阿里云CDN/SMS 槽位（无功能消费）、G5 smoke=套件、G6 前端 deferred、G7 每日geo未聚合、S3 Redis宕fail-open（DESIGN既定取舍）、S4 弱默认密钥仅告警（部署强制）
+- 复验：go build/vet/test ./... 全绿（14 包，真库）

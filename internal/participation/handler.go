@@ -1,6 +1,6 @@
-// Package participation serves the anonymous user side: event entry,
-// device-session minting, and step submission with idempotent checkin
-// (ARCHITECTURE §3/§4/§5).
+// Package participation serves the user side: event landing, strong-identity
+// whitelist login (participant JWT), and D5-gated step submission for the
+// R1-R4 flow (see docs/DESIGN.md §SS-2/§SS-4).
 package participation
 
 import (
