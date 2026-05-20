@@ -19,3 +19,5 @@ captain
 .vscode/
 *.swp
 .DS_Store
+
+.claude/scheduled_tasks.lock
